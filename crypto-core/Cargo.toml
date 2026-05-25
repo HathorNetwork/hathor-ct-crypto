@@ -1,0 +1,22 @@
+[package]
+name = "hathor-ct-crypto-core"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+description = "Shared crypto primitives for Hathor confidential transactions. Not for direct npm/cargo install — consumed by the per-platform binding crates in the same monorepo."
+repository = "https://github.com/HathorNetwork/hathor-ct-crypto"
+publish = false
+
+[dependencies]
+secp256k1-zkp = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"
+
+[features]
+default = ["std"]
+std = ["secp256k1-zkp/std"]

@@ -1,0 +1,19 @@
+{
+  "name": "hathor-ct-crypto",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Monorepo for Hathor confidential-transaction crypto: shared Rust core + per-platform JS packages.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HathorNetwork/hathor-ct-crypto"
+  },
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  }
+}

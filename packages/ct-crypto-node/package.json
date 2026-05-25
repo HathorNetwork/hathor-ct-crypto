@@ -1,0 +1,62 @@
+{
+  "name": "@hathor/ct-crypto-node",
+  "version": "0.0.1-shielded",
+  "description": "Hathor confidential transaction cryptography — NAPI native addon for Node.js + UniFFI bindings for mobile. Implements @hathor/ct-crypto-provider's IShieldedCryptoProvider via the './provider' subpath.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./provider": "./provider.js"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "provider.js",
+    "prebuilds/"
+  ],
+  "scripts": {
+    "build": "cargo build --features napi --release",
+    "build:debug": "cargo build --features napi",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@hathor/ct-crypto-provider": "0.0.1-shielded"
+  },
+  "devDependencies": {
+    "@types/jest": "29.5.12",
+    "@types/node": "20.14.2",
+    "jest": "29.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HathorNetwork/hathor-ct-crypto",
+    "directory": "packages/ct-crypto-node"
+  },
+  "keywords": [
+    "hathor",
+    "confidential-transactions",
+    "pedersen",
+    "bulletproofs",
+    "secp256k1",
+    "napi"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

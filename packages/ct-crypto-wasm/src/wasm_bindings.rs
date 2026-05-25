@@ -1,0 +1,284 @@
+//! Browser-compatible bindings for the Hathor confidential-transaction crypto.
+//!
+//! Two scoped surfaces:
+//!
+//! 1. **Verifier** (since 0.1.0) — `createCommitment`,
+//!    `createAssetCommitment`, `deriveTag`, `deriveAssetTag`,
+//!    `htrAssetTag`. The block explorer's "view tx unblinded" path
+//!    uses these to confirm a shared `(value, vbf, abf?)` opens to
+//!    the on-chain commitment.
+//!
+//! 2. **Auditor rewind** (since 0.2.0) — `rewindAmountShieldedOutput`,
+//!    `rewindFullShieldedOutput`, `deriveEcdhSharedSecret`. The
+//!    `shielded-outputs-audit` browser app uses these to recover
+//!    `(value, vbf, abf?, tokenUid)` from a scan xpriv + on-chain
+//!    output. The xpriv stays in the browser; nothing crosses the
+//!    network.
+//!
+//! Surjection-proof creation, signing, and balancing-blinding-factor
+//! computation stay in `@hathor/ct-crypto-node` — those are wallet
+//! responsibilities, not browser ones.
+//!
+//! Sibling crate `hathor-ct-crypto` ships the Node (NAPI) build with
+//! the full primitive surface. Keep this file's API behaviorally
+//! identical to the equivalent functions in
+//! `hathor-ct-crypto/src/napi_bindings.rs` so a JS consumer can pick
+//! between them at runtime without surface drift.
+
+use secp256k1_zkp::{Generator, Tweak};
+use wasm_bindgen::prelude::*;
+
+use hathor_ct_crypto_core::error::HathorCtError;
+
+fn to_js_err(e: HathorCtError) -> JsValue {
+    JsValue::from_str(&e.to_string())
+}
+
+fn parse_tweak(bytes: &[u8]) -> Result<Tweak, JsValue> {
+    if bytes.len() != 32 {
+        return Err(JsValue::from_str("tweak must be 32 bytes"));
+    }
+    Tweak::from_slice(bytes).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+fn parse_generator(bytes: &[u8]) -> Result<Generator, JsValue> {
+    if bytes.len() != 33 {
+        return Err(JsValue::from_str("generator must be 33 bytes"));
+    }
+    hathor_ct_crypto_core::generators::deserialize_generator(bytes).map_err(to_js_err)
+}
+
+fn parse_token_uid(bytes: &[u8]) -> Result<[u8; 32], JsValue> {
+    if bytes.len() != 32 {
+        return Err(JsValue::from_str("token_uid must be 32 bytes"));
+    }
+    bytes
+        .try_into()
+        .map_err(|_| JsValue::from_str("token_uid must be exactly 32 bytes"))
+}
+
+/// Derive the deterministic asset-tag generator (33-byte compressed point) for a token UID.
+///
+/// Used as the value-commitment generator for AmountShielded outputs (where
+/// the token is public).
+#[wasm_bindgen(js_name = deriveAssetTag)]
+pub fn derive_asset_tag(token_uid: &[u8]) -> Result<Vec<u8>, JsValue> {
+    let uid = parse_token_uid(token_uid)?;
+    let tag = hathor_ct_crypto_core::generators::derive_asset_tag(&uid).map_err(to_js_err)?;
+    Ok(tag.serialize().to_vec())
+}
+
+/// Return the HTR asset-tag generator (token_uid = [0; 32]).
+#[wasm_bindgen(js_name = htrAssetTag)]
+pub fn htr_asset_tag() -> Vec<u8> {
+    hathor_ct_crypto_core::generators::htr_asset_tag().serialize().to_vec()
+}
+
+/// Derive the raw 32-byte Tag for a token UID. Used when constructing
+/// blinded asset commitments for FullShielded outputs.
+#[wasm_bindgen(js_name = deriveTag)]
+pub fn derive_tag(token_uid: &[u8]) -> Result<Vec<u8>, JsValue> {
+    let uid = parse_token_uid(token_uid)?;
+    let tag = hathor_ct_crypto_core::generators::derive_tag(&uid).map_err(to_js_err)?;
+    let bytes: [u8; 32] = tag.into();
+    Ok(bytes.to_vec())
+}
+
+/// Build a blinded asset commitment (33-byte compressed point) from a raw
+/// Tag and an asset blinding factor (`abf`). FullShielded value commitments
+/// are computed against this generator instead of the unblinded asset tag.
+#[wasm_bindgen(js_name = createAssetCommitment)]
+pub fn create_asset_commitment(tag_bytes: &[u8], r_asset: &[u8]) -> Result<Vec<u8>, JsValue> {
+    if tag_bytes.len() != 32 {
+        return Err(JsValue::from_str("tag must be 32 bytes"));
+    }
+    let tag_arr: [u8; 32] = tag_bytes
+        .try_into()
+        .map_err(|_| JsValue::from_str("tag must be exactly 32 bytes"))?;
+    let tag = secp256k1_zkp::Tag::from(tag_arr);
+    let tweak = parse_tweak(r_asset)?;
+    let commitment =
+        hathor_ct_crypto_core::generators::create_asset_commitment(&tag, &tweak).map_err(to_js_err)?;
+    Ok(commitment.serialize().to_vec())
+}
+
+/// Build a Pedersen commitment `C = amount * generator + blinding * G`.
+///
+/// `amount` is passed as a JS `BigInt` (which arrives as `u64` after
+/// wasm-bindgen's BigInt→u64 conversion); blinding is a 32-byte `vbf`;
+/// generator is a 33-byte compressed point (asset tag for AmountShielded
+/// or asset commitment for FullShielded).
+#[wasm_bindgen(js_name = createCommitment)]
+pub fn create_commitment(
+    amount: u64,
+    blinding: &[u8],
+    generator: &[u8],
+) -> Result<Vec<u8>, JsValue> {
+    let bf = parse_tweak(blinding)?;
+    let gen = parse_generator(generator)?;
+    let c = hathor_ct_crypto_core::pedersen::create_commitment(amount, &bf, &gen).map_err(to_js_err)?;
+    Ok(c.serialize().to_vec())
+}
+
+/// Build a trivial (zero-blinding) Pedersen commitment `C = amount * generator`.
+///
+/// Mirrors the NAPI surface for completeness; not strictly needed by the
+/// explorer's verify path but kept here so the two binding surfaces don't
+/// diverge.
+#[wasm_bindgen(js_name = createTrivialCommitment)]
+pub fn create_trivial_commitment(amount: u64, generator: &[u8]) -> Result<Vec<u8>, JsValue> {
+    let gen = parse_generator(generator)?;
+    let c = hathor_ct_crypto_core::pedersen::create_trivial_commitment(amount, &gen).map_err(to_js_err)?;
+    Ok(c.serialize().to_vec())
+}
+
+// ─── Auditor rewind surface (0.2.0) ──────────────────────────────────
+//
+// The high-level `rewindAmountShieldedOutput` / `rewindFullShieldedOutput`
+// entry points combine ECDH + nonce derivation + range-proof rewind into a
+// single call — same behavior as
+// `hathor-ct-crypto/src/napi_bindings.rs:rewind_amount_shielded_output` and
+// the matching `rewind_full_shielded_output`. JS consumers don't need to
+// touch the intermediate primitives.
+//
+// Result shape: a wasm-bindgen struct with cloneable byte-vector getters,
+// translated to a plain JS object with the same field names. Mirrors the
+// NAPI `RewoundAmountShieldedOutput` / `RewoundFullShieldedOutput`
+// shape exactly so the wallet-lib `IShieldedCryptoProvider` interface
+// resolves the same fields against either provider.
+
+/// Result of `rewindAmountShieldedOutput`. JS sees the fields as
+/// `{ value: bigint, blindingFactor: Uint8Array }` via the auto-generated
+/// getter / `toJSON` glue.
+#[wasm_bindgen(js_name = RewoundAmountShieldedOutput)]
+pub struct RewoundAmountShieldedOutput {
+    value: u64,
+    blinding_factor: Vec<u8>,
+}
+
+#[wasm_bindgen(js_class = RewoundAmountShieldedOutput)]
+impl RewoundAmountShieldedOutput {
+    #[wasm_bindgen(getter)]
+    pub fn value(&self) -> u64 {
+        self.value
+    }
+
+    #[wasm_bindgen(getter, js_name = blindingFactor)]
+    pub fn blinding_factor(&self) -> Vec<u8> {
+        self.blinding_factor.clone()
+    }
+}
+
+/// Result of `rewindFullShieldedOutput`. JS shape:
+/// `{ value: bigint, blindingFactor: Uint8Array, tokenUid: Uint8Array, assetBlindingFactor: Uint8Array }`.
+#[wasm_bindgen(js_name = RewoundFullShieldedOutput)]
+pub struct RewoundFullShieldedOutput {
+    value: u64,
+    blinding_factor: Vec<u8>,
+    token_uid: Vec<u8>,
+    asset_blinding_factor: Vec<u8>,
+}
+
+#[wasm_bindgen(js_class = RewoundFullShieldedOutput)]
+impl RewoundFullShieldedOutput {
+    #[wasm_bindgen(getter)]
+    pub fn value(&self) -> u64 {
+        self.value
+    }
+
+    #[wasm_bindgen(getter, js_name = blindingFactor)]
+    pub fn blinding_factor(&self) -> Vec<u8> {
+        self.blinding_factor.clone()
+    }
+
+    #[wasm_bindgen(getter, js_name = tokenUid)]
+    pub fn token_uid(&self) -> Vec<u8> {
+        self.token_uid.clone()
+    }
+
+    #[wasm_bindgen(getter, js_name = assetBlindingFactor)]
+    pub fn asset_blinding_factor(&self) -> Vec<u8> {
+        self.asset_blinding_factor.clone()
+    }
+}
+
+/// Compute the ECDH shared secret used to derive the rewind nonce.
+///
+/// Equivalent to libsecp256k1's `ecdh()` with the standard SHA-256 hash:
+/// `SHA256(version_byte || x_coordinate)`. JS rarely needs this directly
+/// — call `rewindAmountShieldedOutput` / `rewindFullShieldedOutput`
+/// instead — but exposing it matches the NAPI surface and lets advanced
+/// consumers compose their own flows.
+#[wasm_bindgen(js_name = deriveEcdhSharedSecret)]
+pub fn derive_ecdh_shared_secret(private_key: &[u8], peer_pubkey: &[u8]) -> Result<Vec<u8>, JsValue> {
+    let sk = hathor_ct_crypto_core::ecdh::parse_secret_key(private_key).map_err(to_js_err)?;
+    let pk = hathor_ct_crypto_core::ecdh::parse_public_key(peer_pubkey).map_err(to_js_err)?;
+    let secret = hathor_ct_crypto_core::ecdh::derive_ecdh_shared_secret(&sk, &pk);
+    Ok(secret.to_vec())
+}
+
+/// Rewind an AmountShielded output.
+///
+/// Given the recipient's scan privkey + the on-chain output's
+/// ephemeral pubkey + commitment + range proof + token UID, recovers
+/// the cleartext `value` and `blindingFactor`. ECDH derives a shared
+/// secret with the ephemeral pubkey; the secret seeds the range
+/// proof's rewind nonce; the nonce unlocks the encrypted (value, vbf)
+/// payload inside the proof.
+///
+/// Returns `null` if the output isn't addressed to this scan key
+/// (mismatched ECDH → wrong nonce → rewind fails). Throws on shape
+/// errors (malformed inputs).
+#[wasm_bindgen(js_name = rewindAmountShieldedOutput)]
+pub fn rewind_amount_shielded_output(
+    private_key: &[u8],
+    ephemeral_pubkey: &[u8],
+    commitment: &[u8],
+    range_proof: &[u8],
+    token_uid: &[u8],
+) -> Result<RewoundAmountShieldedOutput, JsValue> {
+    let tuid = parse_token_uid(token_uid)?;
+    let result = hathor_ct_crypto_core::ecdh::rewind_amount_shielded_output(
+        private_key,
+        ephemeral_pubkey,
+        commitment,
+        range_proof,
+        &tuid,
+    )
+    .map_err(to_js_err)?;
+    Ok(RewoundAmountShieldedOutput {
+        value: result.value,
+        blinding_factor: result.blinding_factor,
+    })
+}
+
+/// Rewind a FullShielded output.
+///
+/// Recovers value + blinding factor + token UID + asset blinding
+/// factor. The token UID is encoded inside the proof's rewindable
+/// message slot, so a single rewind returns all four. The
+/// `assetCommitment` argument is the on-chain blinded asset
+/// commitment for this output (33 bytes).
+#[wasm_bindgen(js_name = rewindFullShieldedOutput)]
+pub fn rewind_full_shielded_output(
+    private_key: &[u8],
+    ephemeral_pubkey: &[u8],
+    commitment: &[u8],
+    range_proof: &[u8],
+    asset_commitment: &[u8],
+) -> Result<RewoundFullShieldedOutput, JsValue> {
+    let result = hathor_ct_crypto_core::ecdh::rewind_full_shielded_output(
+        private_key,
+        ephemeral_pubkey,
+        commitment,
+        range_proof,
+        asset_commitment,
+    )
+    .map_err(to_js_err)?;
+    Ok(RewoundFullShieldedOutput {
+        value: result.value,
+        blinding_factor: result.blinding_factor,
+        token_uid: result.token_uid.to_vec(),
+        asset_blinding_factor: result.asset_blinding_factor.to_vec(),
+    })
+}

@@ -1,0 +1,48 @@
+[package]
+name = "hathor-ct-crypto-node"
+version = "0.0.1-shielded"
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+description = "NAPI + UniFFI bindings for the Hathor confidential-transaction crypto core. Powers @hathor/ct-crypto-node (Node native addon) and the iOS/Android UniFFI bindings consumed by hathor-wallet-mobile."
+
+[dependencies]
+hathor-ct-crypto-core = { path = "../../crypto-core" }
+secp256k1-zkp = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+
+[dependencies.napi]
+version = "2"
+optional = true
+default-features = false
+features = ["napi8"]
+
+[dependencies.napi-derive]
+version = "2"
+optional = true
+
+[dependencies.uniffi]
+version = "0.28"
+optional = true
+
+[build-dependencies]
+napi-build = { version = "2", optional = true }
+uniffi = { version = "0.28", features = ["build"], optional = true }
+
+[features]
+default = ["std"]
+std = ["secp256k1-zkp/std"]
+napi = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
+uniffi = ["dep:uniffi"]
+uniffi-cli = ["uniffi/cli"]
+
+[lib]
+name = "hathor_ct_crypto"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+required-features = ["uniffi-cli"]

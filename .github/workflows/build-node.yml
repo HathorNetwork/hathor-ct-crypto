@@ -1,0 +1,113 @@
+name: Build native addon
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            prebuild-dir: linux-x64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            prebuild-dir: linux-arm64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            prebuild-dir: darwin-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            prebuild-dir: darwin-x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build native addon
+        run: cargo build -p hathor-ct-crypto-node --features napi --release --target ${{ matrix.target }}
+
+      - name: Copy prebuild
+        run: |
+          mkdir -p packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/${{ matrix.target }}/release/hathor_ct_crypto.dll packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}/ct-crypto.node
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            cp target/${{ matrix.target }}/release/libhathor_ct_crypto.dylib packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}/ct-crypto.node
+          else
+            cp target/${{ matrix.target }}/release/libhathor_ct_crypto.so packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}/ct-crypto.node
+          fi
+
+      - name: Upload prebuild artifact
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuild-${{ matrix.prebuild-dir }}
+          path: packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}/ct-crypto.node
+
+  # Run Rust tests across the workspace
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+
+  # Collect all prebuilds into a single artifact for local npm publish.
+  # Restricted to pushes to master and tags so PR runs can't produce an
+  # artifact that could be mistakenly used to publish.
+  collect:
+    needs: build
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all prebuild artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: prebuilds
+          pattern: prebuild-*
+          merge-multiple: false
+
+      - name: Arrange prebuilds
+        run: |
+          mkdir -p packages/ct-crypto-node/npm-package/prebuilds
+          for dir in prebuilds/prebuild-*/; do
+            platform=$(basename "$dir" | sed 's/prebuild-//')
+            mkdir -p packages/ct-crypto-node/npm-package/prebuilds/$platform
+            cp "$dir/ct-crypto.node" packages/ct-crypto-node/npm-package/prebuilds/$platform/
+          done
+          cd packages/ct-crypto-node
+          cp index.js index.d.ts provider.js package.json npm-package/
+          echo "Package contents:"
+          find npm-package -type f
+
+      - name: Upload npm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: packages/ct-crypto-node/npm-package/

@@ -1,0 +1,52 @@
+{
+  "name": "@hathor/ct-crypto-wasm",
+  "version": "0.0.1-shielded",
+  "description": "Browser-compatible (wasm-bindgen) build of the Hathor confidential-transaction crypto primitives. Verifier-only: see @hathor/ct-crypto-node for the full Node surface.",
+  "type": "module",
+  "main": "hathor_ct_crypto_wasm.js",
+  "types": "hathor_ct_crypto_wasm.d.ts",
+  "exports": {
+    ".": {
+      "types": "./hathor_ct_crypto_wasm.d.ts",
+      "default": "./hathor_ct_crypto_wasm.js"
+    },
+    "./provider": "./provider.js"
+  },
+  "files": [
+    "hathor_ct_crypto_wasm_bg.wasm",
+    "hathor_ct_crypto_wasm.js",
+    "hathor_ct_crypto_wasm.d.ts",
+    "hathor_ct_crypto_wasm_bg.wasm.d.ts",
+    "provider.js"
+  ],
+  "module": "hathor_ct_crypto_wasm.js",
+  "sideEffects": [
+    "./hathor_ct_crypto_wasm.js",
+    "./snippets/*",
+    "./provider.js"
+  ],
+  "scripts": {
+    "build": "bash scripts/build-wasm.sh",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@hathor/ct-crypto-provider": "0.0.1-shielded"
+  },
+  "devDependencies": {
+    "@types/jest": "29.5.12",
+    "@types/node": "20.14.2",
+    "jest": "29.7.0",
+    "babel-jest": "29.7.0",
+    "@babel/core": "7.24.7",
+    "@babel/preset-env": "7.24.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HathorNetwork/hathor-ct-crypto",
+    "directory": "packages/ct-crypto-wasm"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}
