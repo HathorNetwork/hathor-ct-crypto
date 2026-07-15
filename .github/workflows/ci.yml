@@ -7,27 +7,86 @@ on:
 
 jobs:
   rust:
-    name: cargo test (crypto-core)
+    name: cargo test (workspace + bindings)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: cargo check
-        run: cargo check --workspace
-      - name: cargo test
-        run: cargo test --workspace
+      # TEST-02: exercise the binding code, not just crypto-core.
+      - name: cargo check (workspace, NAPI feature)
+        run: cargo check --workspace --locked --features hathor-ct-crypto-node/napi
+      - name: cargo test (crypto-core + NAPI BigInt tests)
+        run: cargo test --workspace --locked --features hathor-ct-crypto-node/napi
+      # Ensure the UniFFI surface at least compiles/type-checks on every PR.
+      - name: cargo check (UniFFI surface)
+        run: cargo check -p hathor-ct-crypto-node --locked --features uniffi
 
-  node:
-    name: npm test (workspaces)
+  uniffi-drift:
+    name: uniffi bindings drift check (GAP2-01)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # Build the dylib with the UniFFI surface, regenerate the Swift bindings
+      # from it, and fail if the checked-in copy has drifted (root cause of
+      # BIND-02). Regenerate + commit swift-bindings/ whenever uniffi_bindings.rs
+      # changes.
+      - name: Build UniFFI library
+        run: cargo build -p hathor-ct-crypto-node --locked --features uniffi --release
+      - name: Regenerate Swift bindings
+        run: |
+          cargo run -p hathor-ct-crypto-node --features uniffi-cli --bin uniffi-bindgen -- \
+            generate --library target/release/libhathor_ct_crypto.dylib \
+            --language swift --out-dir /tmp/swift-bindings-generated
+      - name: Fail on drift
+        run: |
+          diff -u packages/ct-crypto-node/swift-bindings/hathor_ct_crypto.swift \
+                  /tmp/swift-bindings-generated/hathor_ct_crypto.swift
+
+  audit:
+    name: dependency audit (NEW-18)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit
+        run: cargo audit
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: npm install
-        run: npm install
+      - name: npm audit (prod deps)
+        run: npm audit --omit=dev --audit-level=high
+
+  node:
+    name: npm test (workspaces, real crypto)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # TEST-01: build the real native addon and run the JS suites against it
+      # (not stubs/fakes). CT_CRYPTO_REQUIRE_NATIVE=1 makes the node suite FAIL
+      # rather than silently skip if the addon is missing.
+      - name: Build native addon
+        run: cargo build -p hathor-ct-crypto-node --locked --features napi --release
+      - name: Stage prebuild for the loader
+        # The loader (index.js) resolves linux-<arch>-<libc> on Linux; the
+        # ubuntu-latest runner is glibc, so stage into linux-x64-glibc or the
+        # native addon never loads and the JS suite silently skips.
+        run: |
+          mkdir -p packages/ct-crypto-node/prebuilds/linux-x64-glibc
+          cp target/release/libhathor_ct_crypto.so \
+             packages/ct-crypto-node/prebuilds/linux-x64-glibc/ct-crypto.node
+      # NEW-17: npm ci validates the committed package-lock.json.
+      - name: npm ci
+        run: npm ci
       - name: npm run lint
         run: npm run lint --if-present
       - name: npm test
+        env:
+          CT_CRYPTO_REQUIRE_NATIVE: '1'
         run: npm test --if-present

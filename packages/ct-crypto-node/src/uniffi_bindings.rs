@@ -131,9 +131,15 @@ pub fn derive_ecdh_shared_secret_uniffi(privkey: Vec<u8>, pubkey: Vec<u8>) -> Re
 }
 
 #[uniffi::export]
-pub fn derive_rewind_nonce_uniffi(shared_secret: Vec<u8>) -> Vec<u8> {
-    let ss: [u8; 32] = shared_secret.as_slice().try_into().unwrap_or([0u8; 32]);
-    hathor_ct_crypto_core::ecdh::derive_rewind_nonce(&ss).to_vec()
+pub fn derive_rewind_nonce_uniffi(shared_secret: Vec<u8>) -> Result<Vec<u8>, CryptoError> {
+    // SEC-01: reject wrong-length input rather than silently substituting an
+    // all-zero shared secret (which would yield the publicly computable
+    // SHA256("Hathor_CT_nonce_v1" || 0^32)). Matches the NAPI / core behavior.
+    let ss: [u8; 32] = shared_secret
+        .as_slice()
+        .try_into()
+        .map_err(|_| CryptoError::InvalidInput { msg: "shared_secret must be 32 bytes".into() })?;
+    Ok(hathor_ct_crypto_core::ecdh::derive_rewind_nonce(&ss).to_vec())
 }
 
 #[uniffi::export]
@@ -336,8 +342,11 @@ pub fn decrypt_shielded_output_uniffi(
 
     let proof = hathor_ct_crypto_core::rangeproof::deserialize_range_proof(&range_proof)?;
     let comm = hathor_ct_crypto_core::pedersen::deserialize_commitment(&commitment)?;
+    // BIND-09: a successful rewind already verifies the proof against the
+    // commitment inside libsecp256k1 (rangeproof_rewind runs the full verifier),
+    // and consensus enforces the range bound. NAPI and WASM do not re-verify
+    // here; drop the redundant call so all three surfaces behave identically.
     let (value, blinding, _msg) = hathor_ct_crypto_core::rangeproof::rewind_range_proof(&proof, &comm, &nonce_sk, &generator)?;
-    hathor_ct_crypto_core::rangeproof::verify_range_proof(&proof, &comm, &generator)?;
 
     Ok(DecryptedShieldedOutput {
         value,
@@ -364,41 +373,25 @@ pub fn create_surjection_proof_uniffi(
     Ok(hathor_ct_crypto_core::surjection::serialize_surjection_proof(&proof))
 }
 
-#[uniffi::export]
-pub fn compute_balancing_blinding_factor_uniffi(
-    other_blinding_factors: Vec<Vec<u8>>,
-) -> Result<Vec<u8>, CryptoError> {
-    use secp256k1_zkp::Scalar;
-
-    if other_blinding_factors.is_empty() {
-        return Err(CryptoError::InvalidInput { msg: "need at least one blinding factor".into() });
-    }
-
-    let first_bf: [u8; 32] = other_blinding_factors[0].as_slice().try_into()
-        .map_err(|_| CryptoError::InvalidInput { msg: "bf must be 32 bytes".into() })?;
-    let mut sum = SecretKey::from_slice(&first_bf)
-        .map_err(|e| CryptoError::InvalidInput { msg: e.to_string() })?;
-
-    for bf_buf in &other_blinding_factors[1..] {
-        let bf: [u8; 32] = bf_buf.as_slice().try_into()
-            .map_err(|_| CryptoError::InvalidInput { msg: "bf must be 32 bytes".into() })?;
-        let scalar = Scalar::from_be_bytes(bf)
-            .map_err(|e| CryptoError::InvalidInput { msg: e.to_string() })?;
-        sum = sum.add_tweak(&scalar)
-            .map_err(|e| CryptoError::CryptoFailed { msg: e.to_string() })?;
-    }
-    Ok(sum.negate().secret_bytes().to_vec())
-}
-
+// BIND-04: long-form field names matching the provider contract
+// ({ value, valueBlindingFactor, generatorBlindingFactor }); UniFFI lifts these
+// as camelCase in Swift/Kotlin.
 #[derive(uniffi::Record)]
 pub struct BlindingEntry {
     pub value: u64,
-    pub vbf: Vec<u8>,
-    pub gbf: Vec<u8>,
+    pub value_blinding_factor: Vec<u8>,
+    pub generator_blinding_factor: Vec<u8>,
 }
 
+// BIND-07: the previous `compute_balancing_blinding_factor_uniffi` naively
+// negated the sum of blinding factors, which is only correct for a pure
+// AmountShielded flow whose inputs are pre-sign-flipped by the caller — it is
+// unsound for FullShielded and any tx with value-weighted generator terms. It
+// has been removed. This canonical entry point delegates to crypto-core's
+// value/generator-aware `compute_balancing_blinding_factor`
+// (`compute_adaptive_blinding_factor`), matching NAPI.
 #[uniffi::export]
-pub fn compute_balancing_blinding_factor_full_uniffi(
+pub fn compute_balancing_blinding_factor_uniffi(
     value: u64,
     generator_blinding_factor: Vec<u8>,
     inputs: Vec<BlindingEntry>,
@@ -406,27 +399,18 @@ pub fn compute_balancing_blinding_factor_full_uniffi(
 ) -> Result<Vec<u8>, CryptoError> {
     let gbf = to_tweak(&generator_blinding_factor)?;
 
-    let in_secrets: Vec<secp256k1_zkp::CommitmentSecrets> = inputs
-        .iter()
-        .map(|e| {
-            let vbf = to_tweak(&e.vbf)?;
-            let gbf = to_tweak(&e.gbf)?;
-            Ok(secp256k1_zkp::CommitmentSecrets::new(e.value, vbf, gbf))
-        })
-        .collect::<Result<Vec<_>, CryptoError>>()?;
+    let to_triples = |entries: &[BlindingEntry]| -> Result<Vec<(u64, Tweak, Tweak)>, CryptoError> {
+        entries
+            .iter()
+            .map(|e| Ok((e.value, to_tweak(&e.value_blinding_factor)?, to_tweak(&e.generator_blinding_factor)?)))
+            .collect()
+    };
+    let in_triples = to_triples(&inputs)?;
+    let out_triples = to_triples(&other_outputs)?;
 
-    let out_secrets: Vec<secp256k1_zkp::CommitmentSecrets> = other_outputs
-        .iter()
-        .map(|e| {
-            let vbf = to_tweak(&e.vbf)?;
-            let gbf = to_tweak(&e.gbf)?;
-            Ok(secp256k1_zkp::CommitmentSecrets::new(e.value, vbf, gbf))
-        })
-        .collect::<Result<Vec<_>, CryptoError>>()?;
-
-    let result = secp256k1_zkp::compute_adaptive_blinding_factor(
-        SECP256K1, value, gbf, &in_secrets, &out_secrets,
-    );
+    let result = hathor_ct_crypto_core::balance::compute_balancing_blinding_factor(
+        value, &gbf, &in_triples, &out_triples,
+    )?;
     Ok(result.as_ref().to_vec())
 }
 
@@ -445,10 +429,10 @@ pub fn get_zero_tweak_uniffi() -> Vec<u8> {
 /// once mobile picks up this new export.
 #[uniffi::export]
 pub fn generate_random_blinding_factor_uniffi() -> Vec<u8> {
-    use rand::RngCore;
-    let mut bf = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bf);
-    bf.to_vec()
+    // NEW-07: delegate to the validated core generator (rejection-samples until
+    // the bytes are a non-zero, in-range secp256k1 scalar) rather than emitting
+    // raw thread_rng bytes.
+    hathor_ct_crypto_core::ecdh::generate_random_blinding_factor().to_vec()
 }
 
 /// Build a 33-byte Pedersen commitment `value * generator + blinding_factor * G`.
@@ -468,4 +452,59 @@ pub fn create_commitment_uniffi(
         .map_err(CryptoError::from)?;
     let comm = hathor_ct_crypto_core::pedersen::create_commitment(value, &bf_tweak, &gen)?;
     Ok(comm.serialize().to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // SEC-01: derive_rewind_nonce_uniffi must reject wrong-length input rather
+    // than substitute an all-zero secret (publicly computable nonce).
+    #[test]
+    fn test_derive_rewind_nonce_rejects_wrong_length() {
+        assert!(derive_rewind_nonce_uniffi(vec![0u8; 31]).is_err());
+        assert!(derive_rewind_nonce_uniffi(vec![0u8; 33]).is_err());
+        assert!(derive_rewind_nonce_uniffi(vec![]).is_err());
+        // Correct length succeeds and matches the core derivation.
+        let ss = [7u8; 32];
+        let got = derive_rewind_nonce_uniffi(ss.to_vec()).unwrap();
+        let expected = hathor_ct_crypto_core::ecdh::derive_rewind_nonce(&ss).to_vec();
+        assert_eq!(got, expected);
+    }
+
+    // BIND-07: the canonical balancing function is value/generator-aware and
+    // matches crypto-core's compute_balancing_blinding_factor for a shape where
+    // the naive negate-sum would give a different (wrong) answer.
+    #[test]
+    fn test_balancing_factor_matches_core() {
+        let vbf_in = hathor_ct_crypto_core::ecdh::generate_random_blinding_factor();
+        let vbf_out1 = hathor_ct_crypto_core::ecdh::generate_random_blinding_factor();
+        let zero = ZERO_TWEAK.as_ref().to_vec();
+
+        let via_uniffi = compute_balancing_blinding_factor_uniffi(
+            400,
+            zero.clone(),
+            vec![BlindingEntry { value: 1000, value_blinding_factor: vbf_in.to_vec(), generator_blinding_factor: zero.clone() }],
+            vec![BlindingEntry { value: 600, value_blinding_factor: vbf_out1.to_vec(), generator_blinding_factor: zero.clone() }],
+        )
+        .unwrap();
+
+        let via_core = hathor_ct_crypto_core::balance::compute_balancing_blinding_factor(
+            400,
+            &ZERO_TWEAK,
+            &[(1000, to_tweak(&vbf_in.to_vec()).unwrap(), ZERO_TWEAK)],
+            &[(600, to_tweak(&vbf_out1.to_vec()).unwrap(), ZERO_TWEAK)],
+        )
+        .unwrap();
+
+        assert_eq!(via_uniffi, via_core.as_ref().to_vec());
+    }
+
+    // SEC-01 / NEW-07: the mobile RNG entry point returns a valid non-zero scalar.
+    #[test]
+    fn test_uniffi_random_blinding_is_valid() {
+        let bf = generate_random_blinding_factor_uniffi();
+        assert_eq!(bf.len(), 32);
+        assert!(SecretKey::from_slice(&bf).is_ok());
+    }
 }

@@ -1,9 +1,9 @@
 # Rust build artifacts
 target/
 **/*.rs.bk
-# Cargo.lock — library convention (matches the original ct-crypto-node and -wasm
-# repos). Flip this if/when we add binary targets that need reproducibility.
-Cargo.lock
+# SEC-04: Cargo.lock IS committed. This workspace produces published binary
+# artifacts (NAPI .node, wasm) that consumers run, so the exact dependency graph
+# must be reproducible and auditable. CI builds with `--locked`.
 
 # Node
 node_modules/

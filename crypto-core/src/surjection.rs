@@ -2,6 +2,28 @@ use secp256k1_zkp::{Generator, SurjectionProof, Tag, Tweak, SECP256K1};
 
 use crate::error::{HathorCtError, Result};
 
+/// Maximum number of domain (input) entries a surjection proof may reference.
+///
+/// MEM-02: mirrors libsecp256k1's `SECP256K1_SURJECTIONPROOF_MAX_N_INPUTS`.
+/// Passing more than this into `SurjectionProof::new` trips a C `ARG_CHECK`
+/// illegal-callback, which aborts the process across the FFI boundary. We reject
+/// oversize domains with a clean error instead.
+pub const MAX_SURJECTION_DOMAIN: usize = 256;
+
+/// Maximum serialized surjection-proof size accepted by the deserializer.
+///
+/// ROB-02: the guide's hard buffer cap for surjection proofs. Bounds
+/// attacker-supplied input before it reaches the C parser.
+pub const MAX_SURJECTION_PROOF_SIZE: usize = 4096;
+
+/// Number of attempts for the randomized surjection-proof construction.
+///
+/// NEW-06: `SurjectionProof::new` selects a random subset of input tags; near
+/// the domain limit a single attempt fails a non-trivial fraction of the time.
+/// secp256k1 expects the caller to retry with fresh randomness. A genuine error
+/// (e.g. codomain tag absent from the domain) still surfaces after the retries.
+const SURJECTION_PROOF_ATTEMPTS: usize = 64;
+
 /// Create a surjection proof that the output asset commitment is derived from
 /// one of the input asset commitments.
 ///
@@ -19,17 +41,35 @@ pub fn create_surjection_proof(
             "domain must not be empty".into(),
         ));
     }
+    if domain.len() > MAX_SURJECTION_DOMAIN {
+        return Err(HathorCtError::SurjectionProofError(format!(
+            "domain must contain at most {} entries, got {}",
+            MAX_SURJECTION_DOMAIN,
+            domain.len()
+        )));
+    }
 
-    let proof = SurjectionProof::new(
-        SECP256K1,
-        &mut rand::thread_rng(),
-        *codomain_tag,
-        *codomain_blinding_factor,
-        domain,
-    )
-    .map_err(|e| HathorCtError::SurjectionProofError(e.to_string()))?;
+    let mut last_err = None;
+    for _ in 0..SURJECTION_PROOF_ATTEMPTS {
+        match SurjectionProof::new(
+            SECP256K1,
+            &mut rand::thread_rng(),
+            *codomain_tag,
+            *codomain_blinding_factor,
+            domain,
+        ) {
+            Ok(proof) => return Ok(proof),
+            Err(e) => last_err = Some(e),
+        }
+    }
 
-    Ok(proof)
+    Err(HathorCtError::SurjectionProofError(format!(
+        "surjection proof construction failed after {} attempts: {}",
+        SURJECTION_PROOF_ATTEMPTS,
+        last_err
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "unknown error".into())
+    )))
 }
 
 /// Verify a surjection proof that the output asset is derived from one of the input assets.
@@ -56,7 +96,17 @@ pub fn serialize_surjection_proof(proof: &SurjectionProof) -> Vec<u8> {
 }
 
 /// Deserialize a surjection proof from bytes.
+///
+/// ROB-02: enforce the guide's hard buffer cap (`MAX_SURJECTION_PROOF_SIZE`)
+/// before handing attacker-supplied bytes to the C parser.
 pub fn deserialize_surjection_proof(bytes: &[u8]) -> Result<SurjectionProof> {
+    if bytes.len() > MAX_SURJECTION_PROOF_SIZE {
+        return Err(HathorCtError::SurjectionProofError(format!(
+            "surjection proof size {} exceeds maximum {}",
+            bytes.len(),
+            MAX_SURJECTION_PROOF_SIZE
+        )));
+    }
     SurjectionProof::from_slice(bytes)
         .map_err(|e| HathorCtError::SurjectionProofError(format!("failed to deserialize: {}", e)))
 }
@@ -176,5 +226,23 @@ mod tests {
 
         let result = create_surjection_proof(&tag, &bf, &[]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_oversize_domain_rejected_not_abort() {
+        // MEM-02: a domain larger than MAX_SURJECTION_DOMAIN must return Err
+        // rather than trip the C ARG_CHECK and abort the process.
+        let (gen, tag, bf) = random_blinded_tag(&[1u8; 32]);
+        let domain: Vec<(Generator, Tag, Tweak)> =
+            std::iter::repeat((gen, tag, bf)).take(MAX_SURJECTION_DOMAIN + 1).collect();
+        let cbf = Tweak::new(&mut rand::thread_rng());
+        assert!(create_surjection_proof(&tag, &cbf, &domain).is_err());
+    }
+
+    #[test]
+    fn test_deserialize_oversize_surjection_rejected() {
+        // ROB-02
+        let too_big = vec![0u8; MAX_SURJECTION_PROOF_SIZE + 1];
+        assert!(deserialize_surjection_proof(&too_big).is_err());
     }
 }

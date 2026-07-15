@@ -9,13 +9,19 @@
       "types": "./index.d.ts",
       "default": "./index.js"
     },
-    "./provider": "./provider.js"
+    "./provider": {
+      "types": "./provider.d.ts",
+      "default": "./provider.js"
+    }
   },
   "files": [
     "index.js",
     "index.d.ts",
     "provider.js",
-    "prebuilds/"
+    "provider.d.ts",
+    "prebuilds/",
+    "LICENSE",
+    "SHA256SUMS"
   ],
   "scripts": {
     "build": "cargo build --features napi --release",

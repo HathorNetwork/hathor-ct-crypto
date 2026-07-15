@@ -299,12 +299,19 @@ pub struct TransparentEntry {
 }
 
 /// Verify the homomorphic balance equation.
+///
+/// `excess_blinding_factor` (optional, 32 bytes) supports full-unshield
+/// transactions (`UnshieldBalanceHeader`, header id 0x13): shielded inputs with
+/// no shielded outputs, where the sender reveals `excess = sum(r_in) − sum(r_out)`.
+/// Matches hathor-core's signature so client-side verification covers the same
+/// transaction classes the node accepts.
 #[napi]
 pub fn verify_balance(
     transparent_inputs: Vec<TransparentEntry>,
     shielded_inputs: Vec<Buffer>,
     transparent_outputs: Vec<TransparentEntry>,
     shielded_outputs: Vec<Buffer>,
+    excess_blinding_factor: Option<Buffer>,
 ) -> napi::Result<bool> {
     let mut inputs = Vec::new();
     for entry in &transparent_inputs {
@@ -344,7 +351,31 @@ pub fn verify_balance(
         });
     }
 
-    hathor_ct_crypto_core::balance::verify_balance(&inputs, &outputs)
+    // Structural invariants on the excess blinding factor. These also live in
+    // the node's Python verifier (enforced at the tx-header level), but we
+    // re-check at the FFI boundary because the structured signature here
+    // still separates shielded from transparent:
+    //   - excess and shielded_outputs cannot coexist;
+    //   - excess requires at least one shielded input (otherwise there's no
+    //     sum(r_in)·G term to cancel, and the scalar is meaningless).
+    let excess = match excess_blinding_factor {
+        Some(buf) => {
+            if !shielded_outputs.is_empty() {
+                return Err(napi::Error::from_reason(
+                    "excess_blinding_factor must be None when shielded_outputs is non-empty",
+                ));
+            }
+            if shielded_inputs.is_empty() {
+                return Err(napi::Error::from_reason(
+                    "excess_blinding_factor requires at least one shielded input",
+                ));
+            }
+            Some(parse_tweak(buf.as_ref())?)
+        }
+        None => None,
+    };
+
+    hathor_ct_crypto_core::balance::verify_balance(&inputs, &outputs, excess)
         .map(|()| true)
         .or_else(|e| match e {
             HathorCtError::BalanceError(_) => Ok(false),

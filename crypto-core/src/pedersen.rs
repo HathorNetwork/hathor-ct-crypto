@@ -1,5 +1,5 @@
 use secp256k1_zkp::{
-    verify_commitments_sum_to_equal, Generator, PedersenCommitment, Tweak, SECP256K1,
+    verify_commitments_sum_to_equal, Generator, PedersenCommitment, Tweak, ZERO_TWEAK, SECP256K1,
 };
 
 use crate::error::{HathorCtError, Result};
@@ -7,11 +7,23 @@ use crate::error::{HathorCtError, Result};
 /// Create a Pedersen commitment: `C = amount * H + blinding * G`.
 ///
 /// `H` is the generator (asset tag), `G` is the standard secp256k1 generator.
+///
+/// MEM-01: `amount * H + blinding * G` is the identity (point at infinity) when
+/// both `amount == 0` and `blinding == 0`. libsecp256k1 refuses to build that
+/// point (`pedersen_commit` returns 0) and secp256k1-zkp's wrapper then fires an
+/// `assert!`, which aborts the process across the NAPI/UniFFI FFI boundary and
+/// traps the module in WASM. We reject the degenerate case with a clean error
+/// instead. (A zero blinding with a non-zero amount, or vice-versa, is fine.)
 pub fn create_commitment(
     amount: u64,
     blinding: &Tweak,
     generator: &Generator,
 ) -> Result<PedersenCommitment> {
+    if amount == 0 && *blinding == ZERO_TWEAK {
+        return Err(HathorCtError::InvalidCommitment(
+            "cannot commit to zero amount with a zero blinding factor (identity point)".into(),
+        ));
+    }
     let commitment = PedersenCommitment::new(SECP256K1, amount, *blinding, *generator);
     Ok(commitment)
 }
@@ -19,7 +31,16 @@ pub fn create_commitment(
 /// Create a trivial (zero-blinding) Pedersen commitment: `C = amount * H`.
 ///
 /// Used for transparent inputs/outputs in the homomorphic balance equation.
+///
+/// MEM-01: with an implicit zero blinding, `amount == 0` yields the identity
+/// point and the same process-aborting `assert!` as `create_commitment`. Reject
+/// it with a clean error.
 pub fn create_trivial_commitment(amount: u64, generator: &Generator) -> Result<PedersenCommitment> {
+    if amount == 0 {
+        return Err(HathorCtError::InvalidCommitment(
+            "cannot build a trivial commitment to zero amount (identity point)".into(),
+        ));
+    }
     let commitment = PedersenCommitment::new_unblinded(SECP256K1, amount, *generator);
     Ok(commitment)
 }
@@ -142,5 +163,22 @@ mod tests {
     fn test_deserialization_invalid_length() {
         let result = deserialize_commitment(&[0u8; 10]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_identity_point_rejected_not_panic() {
+        // MEM-01: zero amount + zero blinding is the identity point. This must
+        // return Err (clean, catchable) rather than abort via assert!.
+        let gen = htr_asset_tag();
+        assert!(create_commitment(0, &ZERO_TWEAK, &gen).is_err());
+        assert!(create_trivial_commitment(0, &gen).is_err());
+
+        // Non-degenerate zero cases remain valid:
+        // zero amount with a non-zero blinding is a legitimate excess commitment.
+        let bf = Tweak::new(&mut rand::thread_rng());
+        assert!(create_commitment(0, &bf, &gen).is_ok());
+        // non-zero amount with zero blinding is a legitimate unblinded commitment.
+        assert!(create_commitment(100, &ZERO_TWEAK, &gen).is_ok());
+        assert!(create_trivial_commitment(100, &gen).is_ok());
     }
 }

@@ -27,6 +27,17 @@ try {
   providerLoadError = e;
 }
 
+// TEST-01: in CI we set CT_CRYPTO_REQUIRE_NATIVE=1 so a missing/broken addon
+// FAILS the suite instead of silently skipping (which would let the "real
+// crypto" job go green having exercised nothing). Locally the var is unset and
+// the suite skips gracefully when no prebuild exists for the platform.
+if (providerLoadError && process.env.CT_CRYPTO_REQUIRE_NATIVE) {
+  throw new Error(
+    'CT_CRYPTO_REQUIRE_NATIVE is set but the ct-crypto-node native addon failed to load: ' +
+    providerLoadError.message
+  );
+}
+
 const describeIfProvider = providerLoadError ? describe.skip : describe;
 
 if (providerLoadError) {

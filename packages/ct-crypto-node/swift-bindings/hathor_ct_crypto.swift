@@ -498,15 +498,15 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 public struct BlindingEntry {
     public var value: UInt64
-    public var vbf: Data
-    public var gbf: Data
+    public var valueBlindingFactor: Data
+    public var generatorBlindingFactor: Data
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(value: UInt64, vbf: Data, gbf: Data) {
+    public init(value: UInt64, valueBlindingFactor: Data, generatorBlindingFactor: Data) {
         self.value = value
-        self.vbf = vbf
-        self.gbf = gbf
+        self.valueBlindingFactor = valueBlindingFactor
+        self.generatorBlindingFactor = generatorBlindingFactor
     }
 }
 
@@ -517,10 +517,10 @@ extension BlindingEntry: Equatable, Hashable {
         if lhs.value != rhs.value {
             return false
         }
-        if lhs.vbf != rhs.vbf {
+        if lhs.valueBlindingFactor != rhs.valueBlindingFactor {
             return false
         }
-        if lhs.gbf != rhs.gbf {
+        if lhs.generatorBlindingFactor != rhs.generatorBlindingFactor {
             return false
         }
         return true
@@ -528,8 +528,8 @@ extension BlindingEntry: Equatable, Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(value)
-        hasher.combine(vbf)
-        hasher.combine(gbf)
+        hasher.combine(valueBlindingFactor)
+        hasher.combine(generatorBlindingFactor)
     }
 }
 
@@ -542,15 +542,15 @@ public struct FfiConverterTypeBlindingEntry: FfiConverterRustBuffer {
         return
             try BlindingEntry(
                 value: FfiConverterUInt64.read(from: &buf), 
-                vbf: FfiConverterData.read(from: &buf), 
-                gbf: FfiConverterData.read(from: &buf)
+                valueBlindingFactor: FfiConverterData.read(from: &buf), 
+                generatorBlindingFactor: FfiConverterData.read(from: &buf)
         )
     }
 
     public static func write(_ value: BlindingEntry, into buf: inout [UInt8]) {
         FfiConverterUInt64.write(value.value, into: &buf)
-        FfiConverterData.write(value.vbf, into: &buf)
-        FfiConverterData.write(value.gbf, into: &buf)
+        FfiConverterData.write(value.valueBlindingFactor, into: &buf)
+        FfiConverterData.write(value.generatorBlindingFactor, into: &buf)
     }
 }
 
@@ -997,31 +997,6 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
-    typealias SwiftType = [Data]
-
-    public static func write(_ value: [Data], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterData.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Data] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [Data]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterData.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypeBlindingEntry: FfiConverterRustBuffer {
     typealias SwiftType = [BlindingEntry]
 
@@ -1068,20 +1043,13 @@ fileprivate struct FfiConverterSequenceTypeSurjectionDomainEntry: FfiConverterRu
         return seq
     }
 }
-public func computeBalancingBlindingFactorFullUniffi(value: UInt64, generatorBlindingFactor: Data, inputs: [BlindingEntry], otherOutputs: [BlindingEntry])throws  -> Data {
+public func computeBalancingBlindingFactorUniffi(value: UInt64, generatorBlindingFactor: Data, inputs: [BlindingEntry], otherOutputs: [BlindingEntry])throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_compute_balancing_blinding_factor_full_uniffi(
+    uniffi_hathor_ct_crypto_fn_func_compute_balancing_blinding_factor_uniffi(
         FfiConverterUInt64.lower(value),
         FfiConverterData.lower(generatorBlindingFactor),
         FfiConverterSequenceTypeBlindingEntry.lower(inputs),
         FfiConverterSequenceTypeBlindingEntry.lower(otherOutputs),$0
-    )
-})
-}
-public func computeBalancingBlindingFactorUniffi(otherBlindingFactors: [Data])throws  -> Data {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_compute_balancing_blinding_factor_uniffi(
-        FfiConverterSequenceData.lower(otherBlindingFactors),$0
     )
 })
 }
@@ -1090,6 +1058,23 @@ public func createAssetCommitmentUniffi(tag: Data, blindingFactor: Data)throws  
     uniffi_hathor_ct_crypto_fn_func_create_asset_commitment_uniffi(
         FfiConverterData.lower(tag),
         FfiConverterData.lower(blindingFactor),$0
+    )
+})
+}
+/**
+ * Build a 33-byte Pedersen commitment `value * generator + blinding_factor * G`.
+ *
+ * Mirrors `napi_bindings::create_commitment`. Required by the abstract
+ * shielded crypto provider's composed `openAmountShieldedCommitment` /
+ * `openFullShieldedCommitment` methods — mobile would otherwise be
+ * unable to verify cleartext openings against on-chain commitments.
+ */
+public func createCommitmentUniffi(value: UInt64, blindingFactor: Data, generator: Data)throws  -> Data {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
+    uniffi_hathor_ct_crypto_fn_func_create_commitment_uniffi(
+        FfiConverterUInt64.lower(value),
+        FfiConverterData.lower(blindingFactor),
+        FfiConverterData.lower(generator),$0
     )
 })
 }
@@ -1134,14 +1119,14 @@ public func createSurjectionProofUniffi(codomainTag: Data, codomainBlindingFacto
     )
 })
 }
-public func decryptShieldedOutputUniffi(recipientPrivkey: Data, ephemeralPubkey: Data, commitment: Data, rangeProof: Data, tokenUid: Data, assetCommitment: Data?)throws  -> DecryptedShieldedOutput {
+public func decryptShieldedOutputUniffi(recipientPrivkey: Data, ephemeralPubkey: Data, commitment: Data, rangeProof: Data, tokenUid: Data?, assetCommitment: Data?)throws  -> DecryptedShieldedOutput {
     return try  FfiConverterTypeDecryptedShieldedOutput.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
     uniffi_hathor_ct_crypto_fn_func_decrypt_shielded_output_uniffi(
         FfiConverterData.lower(recipientPrivkey),
         FfiConverterData.lower(ephemeralPubkey),
         FfiConverterData.lower(commitment),
         FfiConverterData.lower(rangeProof),
-        FfiConverterData.lower(tokenUid),
+        FfiConverterOptionData.lower(tokenUid),
         FfiConverterOptionData.lower(assetCommitment),$0
     )
 })
@@ -1161,8 +1146,8 @@ public func deriveEcdhSharedSecretUniffi(privkey: Data, pubkey: Data)throws  -> 
     )
 })
 }
-public func deriveRewindNonceUniffi(sharedSecret: Data) -> Data {
-    return try!  FfiConverterData.lift(try! rustCall() {
+public func deriveRewindNonceUniffi(sharedSecret: Data)throws  -> Data {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
     uniffi_hathor_ct_crypto_fn_func_derive_rewind_nonce_uniffi(
         FfiConverterData.lower(sharedSecret),$0
     )
@@ -1172,6 +1157,22 @@ public func deriveTagUniffi(tokenUid: Data)throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
     uniffi_hathor_ct_crypto_fn_func_derive_tag_uniffi(
         FfiConverterData.lower(tokenUid),$0
+    )
+})
+}
+/**
+ * Generate a random 32-byte blinding factor (valid secp256k1 scalar).
+ *
+ * Mirrors `napi_bindings::generate_random_blinding_factor`. Exposed via
+ * UniFFI so the mobile RN bridge (and any future UniFFI consumer) can
+ * call a dedicated RNG primitive — without this, mobile had to call
+ * `create_shielded_output_uniffi` with dummy inputs and extract the
+ * blinding factor from the unused result. That workaround is removed
+ * once mobile picks up this new export.
+ */
+public func generateRandomBlindingFactorUniffi() -> Data {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_hathor_ct_crypto_fn_func_generate_random_blinding_factor_uniffi($0
     )
 })
 }
@@ -1203,13 +1204,13 @@ private var initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_compute_balancing_blinding_factor_full_uniffi() != 10926) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_hathor_ct_crypto_checksum_func_compute_balancing_blinding_factor_uniffi() != 3945) {
+    if (uniffi_hathor_ct_crypto_checksum_func_compute_balancing_blinding_factor_uniffi() != 62172) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_hathor_ct_crypto_checksum_func_create_asset_commitment_uniffi() != 41953) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_hathor_ct_crypto_checksum_func_create_commitment_uniffi() != 12123) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_hathor_ct_crypto_checksum_func_create_shielded_output_uniffi() != 24504) {
@@ -1224,7 +1225,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_hathor_ct_crypto_checksum_func_create_surjection_proof_uniffi() != 18457) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_decrypt_shielded_output_uniffi() != 54231) {
+    if (uniffi_hathor_ct_crypto_checksum_func_decrypt_shielded_output_uniffi() != 62480) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_hathor_ct_crypto_checksum_func_derive_asset_tag_uniffi() != 36682) {
@@ -1233,10 +1234,13 @@ private var initializationResult: InitializationResult = {
     if (uniffi_hathor_ct_crypto_checksum_func_derive_ecdh_shared_secret_uniffi() != 38759) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_derive_rewind_nonce_uniffi() != 61704) {
+    if (uniffi_hathor_ct_crypto_checksum_func_derive_rewind_nonce_uniffi() != 53256) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_hathor_ct_crypto_checksum_func_derive_tag_uniffi() != 39810) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_hathor_ct_crypto_checksum_func_generate_random_blinding_factor_uniffi() != 60383) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_hathor_ct_crypto_checksum_func_get_zero_tweak_uniffi() != 37883) {

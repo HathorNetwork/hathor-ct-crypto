@@ -57,6 +57,21 @@ fn parse_token_uid(bytes: &[u8]) -> Result<[u8; 32], JsValue> {
         .map_err(|_| JsValue::from_str("token_uid must be exactly 32 bytes"))
 }
 
+/// MEM-03: convert a JS `BigInt` amount to `u64`, rejecting negative and
+/// out-of-range values instead of silently wrapping mod 2^64.
+///
+/// wasm-bindgen's native `u64` parameter marshals a JS `BigInt` via
+/// `BigInt.asUintN(64, x)`, which wraps — so an explorer opening-check would
+/// otherwise *accept* a maliciously claimed `V + 2^64` as a valid opening of a
+/// commitment to `V`. Taking a `js_sys::BigInt` and converting explicitly (with
+/// the same semantics as the NAPI `bigint_to_u64`) closes that fail-open.
+fn bigint_to_u64(value: &js_sys::BigInt) -> Result<u64, JsValue> {
+    // try_from returns Err for values outside i64/u64 depending on sign; use the
+    // u64 conversion and reject anything that doesn't fit exactly.
+    u64::try_from(value.clone())
+        .map_err(|_| JsValue::from_str("amount must be a non-negative integer < 2^64"))
+}
+
 /// Derive the deterministic asset-tag generator (33-byte compressed point) for a token UID.
 ///
 /// Used as the value-commitment generator for AmountShielded outputs (where
@@ -104,16 +119,17 @@ pub fn create_asset_commitment(tag_bytes: &[u8], r_asset: &[u8]) -> Result<Vec<u
 
 /// Build a Pedersen commitment `C = amount * generator + blinding * G`.
 ///
-/// `amount` is passed as a JS `BigInt` (which arrives as `u64` after
-/// wasm-bindgen's BigInt→u64 conversion); blinding is a 32-byte `vbf`;
-/// generator is a 33-byte compressed point (asset tag for AmountShielded
-/// or asset commitment for FullShielded).
+/// `amount` is a JS `BigInt`, validated to be a non-negative integer < 2^64
+/// (MEM-03: the value is NOT allowed to wrap mod 2^64, matching NAPI); blinding
+/// is a 32-byte `vbf`; generator is a 33-byte compressed point (asset tag for
+/// AmountShielded or asset commitment for FullShielded).
 #[wasm_bindgen(js_name = createCommitment)]
 pub fn create_commitment(
-    amount: u64,
+    amount: js_sys::BigInt,
     blinding: &[u8],
     generator: &[u8],
 ) -> Result<Vec<u8>, JsValue> {
+    let amount = bigint_to_u64(&amount)?;
     let bf = parse_tweak(blinding)?;
     let gen = parse_generator(generator)?;
     let c = hathor_ct_crypto_core::pedersen::create_commitment(amount, &bf, &gen).map_err(to_js_err)?;
@@ -124,9 +140,10 @@ pub fn create_commitment(
 ///
 /// Mirrors the NAPI surface for completeness; not strictly needed by the
 /// explorer's verify path but kept here so the two binding surfaces don't
-/// diverge.
+/// diverge. `amount` is a validated JS `BigInt` (MEM-03).
 #[wasm_bindgen(js_name = createTrivialCommitment)]
-pub fn create_trivial_commitment(amount: u64, generator: &[u8]) -> Result<Vec<u8>, JsValue> {
+pub fn create_trivial_commitment(amount: js_sys::BigInt, generator: &[u8]) -> Result<Vec<u8>, JsValue> {
+    let amount = bigint_to_u64(&amount)?;
     let gen = parse_generator(generator)?;
     let c = hathor_ct_crypto_core::pedersen::create_trivial_commitment(amount, &gen).map_err(to_js_err)?;
     Ok(c.serialize().to_vec())
@@ -226,9 +243,11 @@ pub fn derive_ecdh_shared_secret(private_key: &[u8], peer_pubkey: &[u8]) -> Resu
 /// proof's rewind nonce; the nonce unlocks the encrypted (value, vbf)
 /// payload inside the proof.
 ///
-/// Returns `null` if the output isn't addressed to this scan key
-/// (mismatched ECDH → wrong nonce → rewind fails). Throws on shape
-/// errors (malformed inputs).
+/// ROB-03: **Throws** when the output isn't addressed to this scan key
+/// (mismatched ECDH → wrong nonce → rewind fails) and on shape errors
+/// (malformed inputs). It never returns `null`. Callers scanning the chain
+/// should wrap this in try/catch and treat a throw as "not addressed to this
+/// key" (the common case) — do not rely on a null return.
 #[wasm_bindgen(js_name = rewindAmountShieldedOutput)]
 pub fn rewind_amount_shielded_output(
     private_key: &[u8],
@@ -259,6 +278,9 @@ pub fn rewind_amount_shielded_output(
 /// message slot, so a single rewind returns all four. The
 /// `assetCommitment` argument is the on-chain blinded asset
 /// commitment for this output (33 bytes).
+///
+/// ROB-03: **Throws** on a foreign output (wrong scan key) or malformed input;
+/// it never returns `null`. Treat a throw as "not addressed to this key".
 #[wasm_bindgen(js_name = rewindFullShieldedOutput)]
 pub fn rewind_full_shielded_output(
     private_key: &[u8],
@@ -281,4 +303,48 @@ pub fn rewind_full_shielded_output(
         token_uid: result.token_uid.to_vec(),
         asset_blinding_factor: result.asset_blinding_factor.to_vec(),
     })
+}
+
+// ─── Pure verifier surface (DIV-02) ──────────────────────────────────
+//
+// These operate only on public, on-chain data (commitments, generators,
+// proofs) with no secret-key or RNG dependency, so they are safe and useful in
+// a browser/explorer context. They let the explorer independently validate
+// third-party shielded outputs rather than relying solely on opening-recompute.
+
+/// Return `true` if `data` parses as a valid 33-byte Pedersen commitment
+/// (on-curve point). Rejects non-curve / wrong-length input.
+#[wasm_bindgen(js_name = validateCommitment)]
+pub fn validate_commitment(data: &[u8]) -> bool {
+    hathor_ct_crypto_core::pedersen::deserialize_commitment(data).is_ok()
+}
+
+/// Return `true` if `data` parses as a valid 33-byte generator / asset
+/// commitment (on-curve point).
+#[wasm_bindgen(js_name = validateGenerator)]
+pub fn validate_generator(data: &[u8]) -> bool {
+    hathor_ct_crypto_core::generators::deserialize_generator(data).is_ok()
+}
+
+/// Verify a range proof against a commitment + generator. Returns `true` iff the
+/// committed value is in the valid range `[1, 1 + 2^40)`.
+#[wasm_bindgen(js_name = verifyRangeProof)]
+pub fn verify_range_proof(proof: &[u8], commitment: &[u8], generator: &[u8]) -> Result<bool, JsValue> {
+    let p = hathor_ct_crypto_core::rangeproof::deserialize_range_proof(proof).map_err(to_js_err)?;
+    let c = hathor_ct_crypto_core::pedersen::deserialize_commitment(commitment).map_err(to_js_err)?;
+    let gen = parse_generator(generator)?;
+    Ok(hathor_ct_crypto_core::rangeproof::verify_range_proof(&p, &c, &gen).is_ok())
+}
+
+/// Verify a surjection proof that the output asset (`codomain`, 33-byte
+/// generator) is one of the input assets (`domain`, 33-byte generators).
+#[wasm_bindgen(js_name = verifySurjectionProof)]
+pub fn verify_surjection_proof(proof: &[u8], codomain: &[u8], domain: Vec<js_sys::Uint8Array>) -> Result<bool, JsValue> {
+    let p = hathor_ct_crypto_core::surjection::deserialize_surjection_proof(proof).map_err(to_js_err)?;
+    let codomain_gen = parse_generator(codomain)?;
+    let domain_gens: Vec<Generator> = domain
+        .iter()
+        .map(|u| parse_generator(&u.to_vec()))
+        .collect::<Result<Vec<_>, JsValue>>()?;
+    Ok(hathor_ct_crypto_core::surjection::verify_surjection_proof(&p, &codomain_gen, &domain_gens).is_ok())
 }

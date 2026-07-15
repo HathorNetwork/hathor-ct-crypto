@@ -50,6 +50,7 @@ export interface TransparentEntry {
 export function verifyBalance(
   transparentInputs: TransparentEntry[], shieldedInputs: Buffer[],
   transparentOutputs: TransparentEntry[], shieldedOutputs: Buffer[],
+  excessBlindingFactor?: Buffer | null,
 ): boolean;
 
 // Blinding factor management

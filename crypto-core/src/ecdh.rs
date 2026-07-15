@@ -1,6 +1,7 @@
 use secp256k1_zkp::ecdh::SharedSecret;
 use secp256k1_zkp::{PublicKey, SecretKey, Tweak};
 use sha2::{Digest, Sha256};
+use zeroize::Zeroize;
 
 use crate::error::HathorCtError;
 use crate::types::TokenUid;
@@ -9,12 +10,24 @@ const NONCE_DOMAIN_SEPARATOR: &[u8] = b"Hathor_CT_nonce_v1";
 
 /// Generate a random 32-byte blinding factor suitable for Pedersen commitments.
 ///
-/// Uses a cryptographically secure RNG. The result is a valid secp256k1 scalar (non-zero).
+/// Uses a cryptographically secure RNG and rejection-samples until the bytes are
+/// a valid secp256k1 scalar (non-zero and < curve order).
+///
+/// NEW-07: `Tweak::new` is a raw `fill_bytes` with no validation, and
+/// `Tweak::from_slice` accepts all-zero, so neither guarantees the "non-zero
+/// valid scalar" this function's callers (and the client guide) rely on. We
+/// validate with `SecretKey::from_slice`, which rejects both zero and
+/// out-of-range values. The retry probability is negligible (~2^-128).
 pub fn generate_random_blinding_factor() -> [u8; 32] {
-    let tweak = Tweak::new(&mut rand::thread_rng());
-    let mut bytes = [0u8; 32];
-    bytes.copy_from_slice(tweak.as_ref());
-    bytes
+    loop {
+        let mut bytes = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+        if SecretKey::from_slice(&bytes).is_ok() {
+            return bytes;
+        }
+        // Not a valid scalar (zero or >= order): wipe and resample.
+        bytes.zeroize();
+    }
 }
 
 /// Generate a fresh ephemeral secp256k1 key pair.
@@ -78,7 +91,7 @@ pub struct FullShieldedOutputResult {
     pub ephemeral_pubkey: [u8; 33],
     /// Serialized Pedersen commitment (33 bytes).
     pub commitment: Vec<u8>,
-    /// Serialized Bulletproof range proof.
+    /// Serialized Borromean range proof.
     pub range_proof: Vec<u8>,
     /// Value blinding factor (32 bytes, passed through).
     pub value_blinding_factor: [u8; 32],
@@ -136,7 +149,7 @@ pub struct AmountFullShieldedOutputResult {
     pub ephemeral_pubkey: [u8; 33],
     /// Serialized Pedersen commitment (33 bytes).
     pub commitment: Vec<u8>,
-    /// Serialized Bulletproof range proof.
+    /// Serialized Borromean range proof.
     pub range_proof: Vec<u8>,
     /// Value blinding factor (32 bytes).
     pub value_blinding_factor: [u8; 32],
@@ -262,6 +275,13 @@ pub fn rewind_full_shielded_output(
     let abf_tweak = Tweak::from_slice(&asset_blinding_factor)
         .map_err(|e| HathorCtError::Secp256k1Error(e.to_string()))?;
     let recomputed = crate::generators::create_asset_commitment(&tag, &abf_tweak)?;
+    // SEC-06: this equality is intentionally variable-time. Both operands are
+    // public, attacker-known values — `generator` is the on-chain
+    // asset_commitment and `recomputed` is derived from the sender-embedded
+    // (token_uid, abf) in the proof message — so there is no secret to leak via
+    // timing. Do NOT copy this pattern to a comparison where either operand is
+    // secret-dependent (e.g. a MAC/tag over a private key); use a constant-time
+    // equality there.
     if recomputed.serialize() != generator.serialize() {
         return Err(HathorCtError::RangeProofError(
             "asset commitment verification failed: extracted token_uid and asset_blinding_factor \
@@ -279,27 +299,41 @@ pub fn rewind_full_shielded_output(
 }
 
 /// Internal helper: generate ephemeral keypair, compute ECDH, return (ephemeral_pubkey, nonce_sk).
+///
+/// SEC-03: the intermediate ephemeral private key, ECDH shared secret and nonce
+/// bytes are wiped from the stack before returning so they do not linger in
+/// freed memory. (Full zeroization across the FFI/JS boundary is tracked
+/// separately; this covers the crypto-core hot path.)
 fn generate_ecdh_nonce(recipient_pubkey: &[u8]) -> Result<([u8; 33], SecretKey), HathorCtError> {
-    let (eph_sk_bytes, eph_pk_bytes) = generate_ephemeral_keypair();
+    let (mut eph_sk_bytes, eph_pk_bytes) = generate_ephemeral_keypair();
     let eph_sk = parse_secret_key(&eph_sk_bytes)?;
     let recipient_pk = parse_public_key(recipient_pubkey)?;
-    let shared_secret = derive_ecdh_shared_secret(&eph_sk, &recipient_pk);
-    let nonce = derive_rewind_nonce(&shared_secret);
+    let mut shared_secret = derive_ecdh_shared_secret(&eph_sk, &recipient_pk);
+    let mut nonce = derive_rewind_nonce(&shared_secret);
     let nonce_sk = SecretKey::from_slice(&nonce)
-        .map_err(|e| HathorCtError::Secp256k1Error(e.to_string()))?;
-    Ok((eph_pk_bytes, nonce_sk))
+        .map_err(|e| HathorCtError::Secp256k1Error(e.to_string()));
+    eph_sk_bytes.zeroize();
+    shared_secret.zeroize();
+    nonce.zeroize();
+    Ok((eph_pk_bytes, nonce_sk?))
 }
 
 /// Internal helper: derive rewind nonce SecretKey from private key + ephemeral pubkey.
+///
+/// SEC-03: wipe the intermediate ECDH shared secret and nonce bytes.
 fn derive_rewind_nonce_from_keys(
     private_key: &[u8],
     ephemeral_pubkey: &[u8],
 ) -> Result<SecretKey, HathorCtError> {
     let sk = parse_secret_key(private_key)?;
     let pk = parse_public_key(ephemeral_pubkey)?;
-    let shared_secret = derive_ecdh_shared_secret(&sk, &pk);
-    let nonce = derive_rewind_nonce(&shared_secret);
-    SecretKey::from_slice(&nonce).map_err(|e| HathorCtError::Secp256k1Error(e.to_string()))
+    let mut shared_secret = derive_ecdh_shared_secret(&sk, &pk);
+    let mut nonce = derive_rewind_nonce(&shared_secret);
+    let nonce_sk = SecretKey::from_slice(&nonce)
+        .map_err(|e| HathorCtError::Secp256k1Error(e.to_string()));
+    shared_secret.zeroize();
+    nonce.zeroize();
+    nonce_sk
 }
 
 /// Parse a 33-byte compressed public key.
@@ -353,5 +387,110 @@ mod tests {
         let n1 = derive_rewind_nonce(&[0x01u8; 32]);
         let n2 = derive_rewind_nonce(&[0x02u8; 32]);
         assert_ne!(n1, n2);
+    }
+
+    #[test]
+    fn test_random_blinding_factor_is_valid_scalar() {
+        // NEW-07: the generator must always return a valid, non-zero scalar.
+        for _ in 0..100 {
+            let bf = generate_random_blinding_factor();
+            assert!(SecretKey::from_slice(&bf).is_ok());
+            assert_ne!(bf, [0u8; 32]);
+        }
+    }
+
+    // TEST-03: full create -> rewind round-trip for AmountShielded.
+    #[test]
+    fn test_amount_shielded_create_rewind_roundtrip() {
+        let (recipient_sk, recipient_pk) = generate_ephemeral_keypair();
+        let token_uid: TokenUid = [3u8; 32];
+        let vbf = generate_random_blinding_factor();
+
+        let out = create_amount_shielded_output(5000, &recipient_pk, &token_uid, &vbf).unwrap();
+        let rewound = rewind_amount_shielded_output(
+            &recipient_sk,
+            &out.ephemeral_pubkey,
+            &out.commitment,
+            &out.range_proof,
+            &token_uid,
+        )
+        .unwrap();
+
+        assert_eq!(rewound.value, 5000);
+        assert_eq!(rewound.blinding_factor, vbf.to_vec());
+    }
+
+    // TEST-03: full create -> rewind round-trip for FullShielded, incl. the
+    // mandatory token-uid / asset-blinding recovery.
+    #[test]
+    fn test_full_shielded_create_rewind_roundtrip() {
+        let (recipient_sk, recipient_pk) = generate_ephemeral_keypair();
+        let token_uid: TokenUid = [9u8; 32];
+        let vbf = generate_random_blinding_factor();
+        let abf = generate_random_blinding_factor();
+
+        let out =
+            create_full_shielded_output(7777, &recipient_pk, &token_uid, &vbf, &abf).unwrap();
+        let rewound = rewind_full_shielded_output(
+            &recipient_sk,
+            &out.ephemeral_pubkey,
+            &out.commitment,
+            &out.range_proof,
+            &out.asset_commitment,
+        )
+        .unwrap();
+
+        assert_eq!(rewound.value, 7777);
+        assert_eq!(rewound.blinding_factor, vbf.to_vec());
+        assert_eq!(rewound.token_uid, token_uid);
+        assert_eq!(rewound.asset_blinding_factor, abf);
+    }
+
+    // TEST-03: wrong recipient cannot rewind (expected during scanning).
+    #[test]
+    fn test_wrong_recipient_rewind_fails() {
+        let (_recipient_sk, recipient_pk) = generate_ephemeral_keypair();
+        let (wrong_sk, _wrong_pk) = generate_ephemeral_keypair();
+        let token_uid: TokenUid = [3u8; 32];
+        let vbf = generate_random_blinding_factor();
+
+        let out = create_amount_shielded_output(5000, &recipient_pk, &token_uid, &vbf).unwrap();
+        assert!(rewind_amount_shielded_output(
+            &wrong_sk,
+            &out.ephemeral_pubkey,
+            &out.commitment,
+            &out.range_proof,
+            &token_uid,
+        )
+        .is_err());
+    }
+
+    // TEST-03 / SEC anti-spoof: a FullShielded output whose embedded token_uid
+    // does not match the asset_commitment must be rejected by the cross-check.
+    #[test]
+    fn test_full_shielded_token_uid_spoof_rejected() {
+        let (recipient_sk, recipient_pk) = generate_ephemeral_keypair();
+        let real_token: TokenUid = [9u8; 32];
+        let vbf = generate_random_blinding_factor();
+        let abf = generate_random_blinding_factor();
+
+        let out =
+            create_full_shielded_output(7777, &recipient_pk, &real_token, &vbf, &abf).unwrap();
+
+        // Tamper: present a different asset_commitment (for another token) as the
+        // generator. The (token_uid, abf) recovered from the proof message will
+        // no longer reproduce it, so the cross-check must fail.
+        let other_tag = crate::generators::derive_tag(&[1u8; 32]).unwrap();
+        let other_abf = Tweak::from_slice(&abf).unwrap();
+        let other_ac = crate::generators::create_asset_commitment(&other_tag, &other_abf).unwrap();
+
+        let res = rewind_full_shielded_output(
+            &recipient_sk,
+            &out.ephemeral_pubkey,
+            &out.commitment,
+            &out.range_proof,
+            &other_ac.serialize(),
+        );
+        assert!(res.is_err());
     }
 }
