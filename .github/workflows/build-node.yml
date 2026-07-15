@@ -61,6 +61,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build native addon
+        # musl: a cdylib cannot link against a static libc, so disable the
+        # musl target's default crt-static or the *-linux-musl legs fail to
+        # link (and the release-completeness assert below would then fail).
+        env:
+          RUSTFLAGS: ${{ matrix.musl && '-C target-feature=-crt-static' || '' }}
         run: cargo build -p hathor-ct-crypto-node --locked --features napi --release --target ${{ matrix.target }}
 
       - name: Copy prebuild
@@ -147,28 +152,9 @@ jobs:
           name: npm-package
           path: packages/ct-crypto-node/npm-package/
 
-  # SEC-04 / NEW-01 / NEW-17: publish from CI on a signed tag, with npm
-  # provenance, so the registry bytes are attested to this repo + workflow run.
-  # Never publishes from a developer machine.
-  publish:
-    needs: collect
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write # required for npm provenance
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: npm-package
-          path: npm-package
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          registry-url: 'https://registry.npmjs.org'
-      - name: Publish to npm (provenance, shielded tag)
-        working-directory: npm-package
-        # NEW-14: prereleases go to the `shielded` dist-tag; never move `latest`.
-        run: npm publish --provenance --access public --tag shielded
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  # NOTE: npm publish is intentionally NOT done here. On a `v*` tag this
+  # workflow builds every prebuild and uploads the ready-to-publish
+  # `npm-package` artifact; the actual `npm publish` is run from a developer
+  # machine via `release-publish.sh publish <version>` (downloads this artifact
+  # and publishes with the operator's npm 2FA). Trade-off: no npm provenance
+  # attestation on the published tarball, since that requires CI OIDC.

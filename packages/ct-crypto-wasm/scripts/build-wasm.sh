@@ -44,16 +44,20 @@ PKG=pkg/package.json
 node -e '
 const fs = require("fs");
 const p = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+// Single source of truth for the published version + runtime deps is the
+// package dev manifest (./package.json), which the release bump updates.
+// wasm-pack stamps the crate version from Cargo.toml into pkg/; override it
+// here so a release only has to touch package.json, not Cargo.toml/Cargo.lock.
+const src = JSON.parse(fs.readFileSync("package.json", "utf8"));
 p.name = "@hathor/ct-crypto-wasm";
+p.version = src.version;
 p.module = "hathor_ct_crypto_wasm.js";
 p.description = "Browser-compatible (wasm-bindgen) build of the Hathor confidential-transaction crypto primitives. Verifier-only: see @hathor/ct-crypto-node for the full Node surface.";
 p.sideEffects = ["./hathor_ct_crypto_wasm.js", "./snippets/*", "./provider.js"];
 p.license = "MIT";
-// NEW-03 / BIND-11: pin the runtime deps that provider.js imports.
-p.dependencies = Object.assign({}, p.dependencies, {
-  "@hathor/ct-crypto-provider": "0.0.1-shielded",
-  "buffer": "6.0.3"
-});
+// NEW-03 / BIND-11: pin the runtime deps that provider.js imports, taken from
+// the dev manifest so provider/buffer pins stay in one place.
+p.dependencies = Object.assign({}, p.dependencies, src.dependencies);
 for (const f of ["hathor_ct_crypto_wasm_bg.wasm.d.ts", "provider.js", "provider.d.ts", "LICENSE"]) {
   if (!p.files.includes(f)) p.files.push(f);
 }

@@ -8,8 +8,15 @@ import { AbstractShieldedProvider, IShieldedCryptoProvider } from '@hathor/ct-cr
  * Browser (wasm-bindgen-backed) shielded crypto provider. Verifier-only by
  * policy: signing, RNG, surjection-proof creation and balancing-blinding-factor
  * computation throw. Use @hathor/ct-crypto-node for those operations.
+ *
+ * Declared as an interface + construct-signature const rather than a `class`:
+ * a hand-written `class ... extends AbstractShieldedProvider {}` is a
+ * non-abstract class with unimplemented abstract members (TS2515). The
+ * interface keeps `WasmShieldedProvider` usable as a type; the const keeps
+ * `new WasmShieldedProvider()` usable as a value.
  */
-export class WasmShieldedProvider extends AbstractShieldedProvider {}
+export interface WasmShieldedProvider extends AbstractShieldedProvider {}
+export declare const WasmShieldedProvider: new () => WasmShieldedProvider;
 
 /**
  * Instantiate the browser provider. Async because it awaits the wasm module's
