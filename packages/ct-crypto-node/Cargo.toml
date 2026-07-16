@@ -11,7 +11,7 @@ hathor-ct-crypto-core = { path = "../../crypto-core" }
 secp256k1-zkp = { workspace = true }
 
 [dependencies.napi]
-version = "2"
+version = "3"
 optional = true
 default-features = false
 features = ["napi8"]
