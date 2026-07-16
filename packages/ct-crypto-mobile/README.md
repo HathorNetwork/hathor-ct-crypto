@@ -62,10 +62,14 @@ from the Rust crate — never edit them by hand. After changing
 cargo build -p hathor-ct-crypto-mobile --release
 cargo run -p hathor-ct-crypto-mobile --features uniffi-cli --bin uniffi-bindgen -- \
   generate --library target/release/libhathor_ct_crypto_mobile.dylib \
-  --language swift --out-dir packages/ct-crypto-mobile/ios
+  --language swift --no-format --out-dir packages/ct-crypto-mobile/ios
 cargo run -p hathor-ct-crypto-mobile --features uniffi-cli --bin uniffi-bindgen -- \
   generate --library target/release/libhathor_ct_crypto_mobile.dylib \
-  --language kotlin --out-dir packages/ct-crypto-mobile/android/src/main/java
+  --language kotlin --no-format --out-dir packages/ct-crypto-mobile/android/src/main/java
 ```
+
+Always pass `--no-format` — the committed bindings are unformatted, and the
+CI drift check regenerates with `--no-format` so the comparison does not
+depend on whichever swiftformat/ktlint version happens to be installed.
 
 CI fails the build if the committed bindings drift from the Rust surface.

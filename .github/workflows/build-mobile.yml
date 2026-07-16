@@ -20,10 +20,14 @@ jobs:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
 
       - name: Build iOS static libraries
+        # cargo rustc --crate-type staticlib: the crate also declares cdylib
+        # (needed for Android/bindgen), but iOS cannot link a plain dylib —
+        # `cargo build` would fail in the cdylib link step. Only the .a is
+        # needed here.
         run: |
-          cargo build -p hathor-ct-crypto-mobile --locked --release --target aarch64-apple-ios
-          cargo build -p hathor-ct-crypto-mobile --locked --release --target aarch64-apple-ios-sim
-          cargo build -p hathor-ct-crypto-mobile --locked --release --target x86_64-apple-ios
+          cargo rustc -p hathor-ct-crypto-mobile --locked --release --target aarch64-apple-ios --crate-type staticlib
+          cargo rustc -p hathor-ct-crypto-mobile --locked --release --target aarch64-apple-ios-sim --crate-type staticlib
+          cargo rustc -p hathor-ct-crypto-mobile --locked --release --target x86_64-apple-ios --crate-type staticlib
 
       - name: Assemble XCFramework
         run: |

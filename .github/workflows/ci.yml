@@ -34,13 +34,17 @@ jobs:
       - name: Build UniFFI library
         run: cargo build -p hathor-ct-crypto-mobile --locked --release
       - name: Regenerate Swift + Kotlin bindings
+        # --no-format: the runner image ships swiftformat/ktlint and bindgen
+        # auto-formats when they're present, which makes the output depend on
+        # the runner's formatter version. The committed bindings are generated
+        # unformatted; keep regeneration deterministic.
         run: |
           cargo run -p hathor-ct-crypto-mobile --locked --features uniffi-cli --bin uniffi-bindgen -- \
             generate --library target/release/libhathor_ct_crypto_mobile.dylib \
-            --language swift --out-dir /tmp/bindings-generated/swift
+            --language swift --no-format --out-dir /tmp/bindings-generated/swift
           cargo run -p hathor-ct-crypto-mobile --locked --features uniffi-cli --bin uniffi-bindgen -- \
             generate --library target/release/libhathor_ct_crypto_mobile.dylib \
-            --language kotlin --out-dir /tmp/bindings-generated/kotlin
+            --language kotlin --no-format --out-dir /tmp/bindings-generated/kotlin
       - name: Fail on drift
         run: |
           set -e
