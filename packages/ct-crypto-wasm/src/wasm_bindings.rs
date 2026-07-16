@@ -57,7 +57,7 @@ fn parse_token_uid(bytes: &[u8]) -> Result<[u8; 32], JsValue> {
         .map_err(|_| JsValue::from_str("token_uid must be exactly 32 bytes"))
 }
 
-/// MEM-03: convert a JS `BigInt` amount to `u64`, rejecting negative and
+/// Convert a JS `BigInt` amount to `u64`, rejecting negative and
 /// out-of-range values instead of silently wrapping mod 2^64.
 ///
 /// wasm-bindgen's native `u64` parameter marshals a JS `BigInt` via
@@ -120,7 +120,7 @@ pub fn create_asset_commitment(tag_bytes: &[u8], r_asset: &[u8]) -> Result<Vec<u
 /// Build a Pedersen commitment `C = amount * generator + blinding * G`.
 ///
 /// `amount` is a JS `BigInt`, validated to be a non-negative integer < 2^64
-/// (MEM-03: the value is NOT allowed to wrap mod 2^64, matching NAPI); blinding
+/// (the value is NOT allowed to wrap mod 2^64, matching NAPI); blinding
 /// is a 32-byte `vbf`; generator is a 33-byte compressed point (asset tag for
 /// AmountShielded or asset commitment for FullShielded).
 #[wasm_bindgen(js_name = createCommitment)]
@@ -140,7 +140,7 @@ pub fn create_commitment(
 ///
 /// Mirrors the NAPI surface for completeness; not strictly needed by the
 /// explorer's verify path but kept here so the two binding surfaces don't
-/// diverge. `amount` is a validated JS `BigInt` (MEM-03).
+/// diverge. `amount` is a validated JS `BigInt` (no mod-2^64 wrapping).
 #[wasm_bindgen(js_name = createTrivialCommitment)]
 pub fn create_trivial_commitment(amount: js_sys::BigInt, generator: &[u8]) -> Result<Vec<u8>, JsValue> {
     let amount = bigint_to_u64(&amount)?;
@@ -243,7 +243,7 @@ pub fn derive_ecdh_shared_secret(private_key: &[u8], peer_pubkey: &[u8]) -> Resu
 /// proof's rewind nonce; the nonce unlocks the encrypted (value, vbf)
 /// payload inside the proof.
 ///
-/// ROB-03: **Throws** when the output isn't addressed to this scan key
+/// **Throws** when the output isn't addressed to this scan key
 /// (mismatched ECDH → wrong nonce → rewind fails) and on shape errors
 /// (malformed inputs). It never returns `null`. Callers scanning the chain
 /// should wrap this in try/catch and treat a throw as "not addressed to this
@@ -279,7 +279,7 @@ pub fn rewind_amount_shielded_output(
 /// `assetCommitment` argument is the on-chain blinded asset
 /// commitment for this output (33 bytes).
 ///
-/// ROB-03: **Throws** on a foreign output (wrong scan key) or malformed input;
+/// **Throws** on a foreign output (wrong scan key) or malformed input;
 /// it never returns `null`. Treat a throw as "not addressed to this key".
 #[wasm_bindgen(js_name = rewindFullShieldedOutput)]
 pub fn rewind_full_shielded_output(
@@ -305,7 +305,7 @@ pub fn rewind_full_shielded_output(
     })
 }
 
-// ─── Pure verifier surface (DIV-02) ──────────────────────────────────
+// ─── Pure verifier surface ───────────────────────────────────────────
 //
 // These operate only on public, on-chain data (commitments, generators,
 // proofs) with no secret-key or RNG dependency, so they are safe and useful in

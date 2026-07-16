@@ -8,7 +8,7 @@ const path = require('path');
 const os = require('os');
 
 /**
- * NEW-02: on Linux the C ABI is not captured by os.platform()/os.arch() — a
+ * On Linux the C ABI is not captured by os.platform()/os.arch() — a
  * glibc-linked `.so` cannot be dlopen'd on a musl system (e.g. Alpine, which is
  * wallet-headless's official Docker base) and vice-versa. Detect libc so we
  * resolve `linux-x64-glibc` vs `linux-x64-musl` instead of a single

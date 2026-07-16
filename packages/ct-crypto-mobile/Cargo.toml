@@ -1,0 +1,31 @@
+[package]
+name = "hathor-ct-crypto-mobile"
+version = "0.0.1-shielded"
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+description = "UniFFI bindings for the Hathor confidential-transaction crypto core. Produces the iOS (Swift) and Android (Kotlin) native libraries shipped in the @hathor/ct-crypto-mobile React Native package."
+
+[dependencies]
+hathor-ct-crypto-core = { path = "../../crypto-core" }
+secp256k1-zkp = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+uniffi = { version = "0.28" }
+
+[features]
+default = ["std"]
+std = ["secp256k1-zkp/std"]
+uniffi-cli = ["uniffi/cli"]
+
+# The lib name intentionally differs from ct-crypto-node's `hathor_ct_crypto`
+# (two workspace crates cannot share one artifact name). The UniFFI *namespace*
+# stays `hathor_ct_crypto` (see setup_scaffolding! in lib.rs), so the generated
+# Swift/Kotlin API is unchanged; only the binary is libhathor_ct_crypto_mobile.
+[lib]
+name = "hathor_ct_crypto_mobile"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+required-features = ["uniffi-cli"]

@@ -1,4 +1,4 @@
-// NEW-04: type declarations for the ./provider subpath of @hathor/ct-crypto-wasm.
+// Type declarations for the ./provider subpath of @hathor/ct-crypto-wasm.
 // Copied into pkg/ by scripts/build-wasm.sh and referenced by the package's
 // `./provider` export `types` condition.
 

@@ -1,7 +1,7 @@
 # Rust build artifacts
 target/
 **/*.rs.bk
-# SEC-04: Cargo.lock IS committed. This workspace produces published binary
+# Cargo.lock IS committed. This workspace produces published binary
 # artifacts (NAPI .node, wasm) that consumers run, so the exact dependency graph
 # must be reproducible and auditable. CI builds with `--locked`.
 
@@ -14,9 +14,14 @@ packages/ct-crypto-wasm/pkg/
 # NAPI prebuild output (built by CI; never committed)
 packages/ct-crypto-node/prebuilds/
 
-# npm publish staging dir (built by CI)
+# Mobile native binaries (built by CI via build-mobile.yml; never committed)
+packages/ct-crypto-mobile/ios/HathorCtCrypto.xcframework/
+packages/ct-crypto-mobile/android/src/main/jniLibs/
+
+# npm publish staging dirs (built by CI / release tooling)
 packages/ct-crypto-node/npm-package/
 packages/ct-crypto-node/npm-package.zip
+.release/
 
 # Editor / OS
 .DS_Store
@@ -28,7 +33,9 @@ result
 result-*
 .direnv/
 
-# Local commit-helper shell scripts (GPG-signing requires a TTY, so we
-# drive `git commit` via interactive scripts kept out of source control)
+# Local commit/publish-helper shell scripts (GPG-signing and npm 2FA require
+# a TTY, so we drive them via interactive scripts kept out of source control)
 commit-*.sh
 release-*.sh
+publish-*.sh
+push-*.sh

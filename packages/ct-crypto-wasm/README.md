@@ -1,23 +1,25 @@
 # `@hathor/ct-crypto-wasm`
 
 Browser-compatible (wasm-bindgen) build of the Hathor confidential-transaction
-crypto primitives.
+crypto primitives — the **view/verify** sibling of
+[`@hathor/ct-crypto-node`](https://github.com/HathorNetwork/hathor-ct-crypto).
+Used by the explorer and other browser consumers.
 
-This crate is the **verifier-only** sibling of
-[`@hathor/ct-crypto-node`](https://github.com/HathorNetwork/hathor-ct-crypto):
+What it exposes (JS names):
 
-- ✅ `deriveAssetTag`, `deriveTag`, `htrAssetTag`
-- ✅ `createAssetCommitment` (blinded asset generator for FullShielded)
-- ✅ `createCommitment` (Pedersen value commitment)
-- ✅ `createTrivialCommitment`
+- Tag/generator derivation: `deriveTag`, `deriveAssetTag`, `htrAssetTag`
+- Commitment recompute (cleartext-opening validation): `createCommitment`,
+  `createAssetCommitment`, `createTrivialCommitment`
+- Output scanning/decryption: `deriveEcdhSharedSecret`,
+  `rewindAmountShieldedOutput`, `rewindFullShieldedOutput`
+- On-chain data validation: `validateCommitment`, `validateGenerator`,
+  `verifyRangeProof`, `verifySurjectionProof`
 
-Range-proof rewind, ECDH and surjection-proof creation are **not** exposed —
-anyone holding the cleartext `value` / `vbf` / `abf` already has the rewound
-output, so those primitives would only inflate the WASM artifact for browser
-consumers.
-
-The Node-side `@hathor/ct-crypto-node` package keeps the full surface for
-wallet-lib's signing / scanning paths.
+What it deliberately does **not** expose: output *creation* (range-proof and
+surjection-proof construction), blinding-factor RNG, and balancing-factor
+computation — signing flows belong to `@hathor/ct-crypto-node` (or
+`@hathor/ct-crypto-mobile` on mobile). The `./provider` subpath ships a
+`WasmShieldedProvider` whose signing methods throw accordingly.
 
 ## Build
 
@@ -35,16 +37,16 @@ The repo ships a flake that wires all three:
 nix develop --command ./scripts/build-wasm.sh
 ```
 
-That produces a publishable artifact at `pkg/`. To publish:
-
-```sh
-cd pkg && npm publish --access public
-```
+That produces the publishable artifact at `pkg/` — `build-wasm.sh` rewrites
+`pkg/package.json` (scoped name, version, exports, runtime deps) on every
+build, so never hand-edit files under `pkg/`. Publishing happens from `pkg/`
+as part of the repo's release flow (all packages release in lockstep on a
+`vX.Y.Z` tag).
 
 ## Tests
 
 ```sh
-cargo test                              # native unit tests (generators, pedersen)
+cargo test                                    # native unit tests
 nix develop --command wasm-pack test --node   # wasm bindings (optional)
 ```
 
@@ -52,17 +54,13 @@ nix develop --command wasm-pack test --node   # wasm bindings (optional)
 
 ```
 src/
-  lib.rs           # exports + module gate
-  error.rs         # HathorCtError
-  types.rs         # TokenUid, COMMITMENT_SIZE, GENERATOR_SIZE
-  generators.rs    # asset-tag derivation + asset-commitment construction
-  pedersen.rs      # Pedersen commitment math
-  wasm_bindings.rs # wasm-bindgen surface
-flake.nix          # dev shell (wasm-pack + clang-unwrapped + llvm-ar)
-scripts/build-wasm.sh   # builds + patches pkg/package.json with the npm-scoped name
+  lib.rs             # crate gate
+  wasm_bindings.rs   # the wasm-bindgen surface
+provider.js          # WasmShieldedProvider (copied into pkg/ by the build)
+provider.d.ts        # types for the ./provider subpath
+flake.nix            # dev shell (wasm-pack + clang-unwrapped + llvm-ar)
+scripts/build-wasm.sh
 ```
 
-The crypto core (`generators.rs`, `pedersen.rs`) is duplicated from the
-sibling `hathor-ct-crypto` repo so the WASM crate publishes, audits and
-builds independently. Behavioral parity with the NAPI bindings is enforced
-by wallet-lib's `__tests__/shielded/provider.test.ts` round-trip suite.
+The cryptography itself lives in the workspace's `crypto-core/` crate — this
+package is only the wasm-bindgen boundary plus packaging.

@@ -13,7 +13,7 @@ const NONCE_DOMAIN_SEPARATOR: &[u8] = b"Hathor_CT_nonce_v1";
 /// Uses a cryptographically secure RNG and rejection-samples until the bytes are
 /// a valid secp256k1 scalar (non-zero and < curve order).
 ///
-/// NEW-07: `Tweak::new` is a raw `fill_bytes` with no validation, and
+/// `Tweak::new` is a raw `fill_bytes` with no validation, and
 /// `Tweak::from_slice` accepts all-zero, so neither guarantees the "non-zero
 /// valid scalar" this function's callers (and the client guide) rely on. We
 /// validate with `SecretKey::from_slice`, which rejects both zero and
@@ -275,7 +275,7 @@ pub fn rewind_full_shielded_output(
     let abf_tweak = Tweak::from_slice(&asset_blinding_factor)
         .map_err(|e| HathorCtError::Secp256k1Error(e.to_string()))?;
     let recomputed = crate::generators::create_asset_commitment(&tag, &abf_tweak)?;
-    // SEC-06: this equality is intentionally variable-time. Both operands are
+    // This equality is intentionally variable-time. Both operands are
     // public, attacker-known values — `generator` is the on-chain
     // asset_commitment and `recomputed` is derived from the sender-embedded
     // (token_uid, abf) in the proof message — so there is no secret to leak via
@@ -300,7 +300,7 @@ pub fn rewind_full_shielded_output(
 
 /// Internal helper: generate ephemeral keypair, compute ECDH, return (ephemeral_pubkey, nonce_sk).
 ///
-/// SEC-03: the intermediate ephemeral private key, ECDH shared secret and nonce
+/// The intermediate ephemeral private key, ECDH shared secret and nonce
 /// bytes are wiped from the stack before returning so they do not linger in
 /// freed memory. (Full zeroization across the FFI/JS boundary is tracked
 /// separately; this covers the crypto-core hot path.)
@@ -320,7 +320,7 @@ fn generate_ecdh_nonce(recipient_pubkey: &[u8]) -> Result<([u8; 33], SecretKey),
 
 /// Internal helper: derive rewind nonce SecretKey from private key + ephemeral pubkey.
 ///
-/// SEC-03: wipe the intermediate ECDH shared secret and nonce bytes.
+/// Wipe the intermediate ECDH shared secret and nonce bytes.
 fn derive_rewind_nonce_from_keys(
     private_key: &[u8],
     ephemeral_pubkey: &[u8],
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_random_blinding_factor_is_valid_scalar() {
-        // NEW-07: the generator must always return a valid, non-zero scalar.
+        // The generator must always return a valid, non-zero scalar.
         for _ in 0..100 {
             let bf = generate_random_blinding_factor();
             assert!(SecretKey::from_slice(&bf).is_ok());
@@ -399,7 +399,7 @@ mod tests {
         }
     }
 
-    // TEST-03: full create -> rewind round-trip for AmountShielded.
+    // Full create -> rewind round-trip for AmountShielded.
     #[test]
     fn test_amount_shielded_create_rewind_roundtrip() {
         let (recipient_sk, recipient_pk) = generate_ephemeral_keypair();
@@ -420,7 +420,7 @@ mod tests {
         assert_eq!(rewound.blinding_factor, vbf.to_vec());
     }
 
-    // TEST-03: full create -> rewind round-trip for FullShielded, incl. the
+    // Full create -> rewind round-trip for FullShielded, incl. the
     // mandatory token-uid / asset-blinding recovery.
     #[test]
     fn test_full_shielded_create_rewind_roundtrip() {
@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(rewound.asset_blinding_factor, abf);
     }
 
-    // TEST-03: wrong recipient cannot rewind (expected during scanning).
+    // Wrong recipient cannot rewind (expected during scanning).
     #[test]
     fn test_wrong_recipient_rewind_fails() {
         let (_recipient_sk, recipient_pk) = generate_ephemeral_keypair();
@@ -465,7 +465,7 @@ mod tests {
         .is_err());
     }
 
-    // TEST-03 / SEC anti-spoof: a FullShielded output whose embedded token_uid
+    // Anti-spoof: a FullShielded output whose embedded token_uid
     // does not match the asset_commitment must be rejected by the cross-check.
     #[test]
     fn test_full_shielded_token_uid_spoof_rejected() {

@@ -1,0 +1,151 @@
+name: Build mobile libraries
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+
+jobs:
+  # iOS: static libs for device + simulator, assembled into an XCFramework
+  # whose Headers carry the UniFFI FFI header + modulemap so the generated
+  # Swift can `import hathor_ct_cryptoFFI`.
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Build iOS static libraries
+        run: |
+          cargo build -p hathor-ct-crypto-mobile --locked --release --target aarch64-apple-ios
+          cargo build -p hathor-ct-crypto-mobile --locked --release --target aarch64-apple-ios-sim
+          cargo build -p hathor-ct-crypto-mobile --locked --release --target x86_64-apple-ios
+
+      - name: Assemble XCFramework
+        run: |
+          set -euo pipefail
+          STAGE=$(mktemp -d)
+          # Simulator slice must be a universal (arm64 + x86_64) binary.
+          mkdir -p "$STAGE/sim"
+          lipo -create \
+            target/aarch64-apple-ios-sim/release/libhathor_ct_crypto_mobile.a \
+            target/x86_64-apple-ios/release/libhathor_ct_crypto_mobile.a \
+            -output "$STAGE/sim/libhathor_ct_crypto_mobile.a"
+          # Headers dir: FFI header + module.modulemap (xcodebuild expects the
+          # canonical name module.modulemap inside Headers).
+          mkdir -p "$STAGE/headers"
+          cp packages/ct-crypto-mobile/ios/hathor_ct_cryptoFFI.h "$STAGE/headers/"
+          cp packages/ct-crypto-mobile/ios/hathor_ct_cryptoFFI.modulemap "$STAGE/headers/module.modulemap"
+          xcodebuild -create-xcframework \
+            -library target/aarch64-apple-ios/release/libhathor_ct_crypto_mobile.a -headers "$STAGE/headers" \
+            -library "$STAGE/sim/libhathor_ct_crypto_mobile.a" -headers "$STAGE/headers" \
+            -output HathorCtCrypto.xcframework
+          zip -ry HathorCtCrypto.xcframework.zip HathorCtCrypto.xcframework
+
+      - name: Upload XCFramework
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-ios-xcframework
+          path: HathorCtCrypto.xcframework.zip
+
+  # Android: cdylibs for the three supported ABIs, in jniLibs layout.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - name: Install cargo-ndk
+        # Pinned: NDK discovery and page-size defaults vary across cargo-ndk
+        # releases; bump deliberately.
+        run: cargo install cargo-ndk --version 4.1.2 --locked
+
+      - name: Build Android libraries (jniLibs layout)
+        # ANDROID_NDK_LATEST_HOME is a runner-image machine variable — it is
+        # visible to the shell but NOT to the ${{ env }} expression context,
+        # so it must be exported inside the script. The latest NDK (r28+)
+        # also gives the .so 16 KB page-size alignment, which Google Play
+        # requires for apps targeting Android 15+.
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
+          echo "Using NDK: $ANDROID_NDK_HOME"
+          test -n "$ANDROID_NDK_HOME" || { echo "::error::ANDROID_NDK_LATEST_HOME not set on runner"; exit 1; }
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o jniLibs \
+            build -p hathor-ct-crypto-mobile --locked --release
+
+      - name: Upload jniLibs
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-android-jnilibs
+          path: jniLibs/
+
+  # Assemble the publishable npm package: repo sources + CI-built binaries.
+  # Publishing itself is run by a maintainer from this artifact — see
+  # RELEASING.md.
+  collect:
+    needs: [ios, android]
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download iOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-ios-xcframework
+          path: ios-artifact
+      - name: Download Android artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-android-jnilibs
+          path: android-artifact
+
+      - name: Stage npm package
+        run: |
+          set -euo pipefail
+          PKG=packages/ct-crypto-mobile
+          STAGE=npm-package-mobile
+          mkdir -p "$STAGE"
+          # Package sources (js/, ios/ bridge + generated bindings, android/).
+          cp -R "$PKG/js" "$PKG/ios" "$PKG/android" "$STAGE/"
+          cp "$PKG/package.json" "$PKG/index.d.ts" "$PKG/hathor-ct-crypto-mobile.podspec" "$PKG/README.md" "$STAGE/"
+          cp LICENSE "$STAGE/"
+          # CI-built binaries.
+          unzip -q ios-artifact/HathorCtCrypto.xcframework.zip -d "$STAGE/ios/"
+          mkdir -p "$STAGE/android/src/main/jniLibs"
+          cp -R android-artifact/. "$STAGE/android/src/main/jniLibs/"
+
+      - name: Assert package completeness
+        # A tarball missing any native binary installs fine and then fails at
+        # runtime on that platform — refuse to ship one.
+        run: |
+          set -euo pipefail
+          test -d npm-package-mobile/ios/HathorCtCrypto.xcframework || { echo "::error::missing XCFramework"; exit 1; }
+          missing=0
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            if [ ! -f "npm-package-mobile/android/src/main/jniLibs/$abi/libhathor_ct_crypto_mobile.so" ]; then
+              echo "::error::missing Android lib for $abi"
+              missing=1
+            fi
+          done
+          [ "$missing" = "0" ] || exit 1
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd npm-package-mobile
+          { find ios/HathorCtCrypto.xcframework -type f -name '*.a' ; \
+            find android/src/main/jniLibs -type f -name '*.so' ; } \
+            | xargs shasum -a 256 | sort -k2 > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload npm package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-mobile
+          path: npm-package-mobile/

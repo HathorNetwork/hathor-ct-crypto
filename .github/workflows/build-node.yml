@@ -20,7 +20,7 @@ jobs:
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             prebuild-dir: linux-arm64-glibc
-          # Linux musl (NEW-02: wallet-headless runs on Alpine/musl)
+          # Linux musl (wallet-headless runs on Alpine/musl)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             prebuild-dir: linux-x64-musl
@@ -36,7 +36,7 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             prebuild-dir: darwin-x64
-          # Windows (GAP2-04: make the advertised win32 support real)
+          # Windows (package.json advertises win32 — back it with a real build)
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             prebuild-dir: win32-x64
@@ -122,7 +122,7 @@ jobs:
           cd packages/ct-crypto-node
           cp index.js index.d.ts provider.js provider.d.ts package.json ../../LICENSE npm-package/
 
-      # NEW-01: fail the release if any declared platform prebuild is missing,
+      # Fail the release if any declared platform prebuild is missing,
       # instead of shipping a package that installs everywhere then throws at
       # require() on the platforms with no binary.
       - name: Assert all declared prebuilds present
@@ -154,7 +154,6 @@ jobs:
 
   # NOTE: npm publish is intentionally NOT done here. On a `v*` tag this
   # workflow builds every prebuild and uploads the ready-to-publish
-  # `npm-package` artifact; the actual `npm publish` is run from a developer
-  # machine via `release-publish.sh publish <version>` (downloads this artifact
-  # and publishes with the operator's npm 2FA). Trade-off: no npm provenance
-  # attestation on the published tarball, since that requires CI OIDC.
+  # `npm-package` artifact; a maintainer downloads it and publishes with
+  # npm 2FA — see RELEASING.md. Trade-off: no npm provenance attestation on
+  # the published tarball, since that requires CI OIDC.

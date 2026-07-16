@@ -1,0 +1,55 @@
+{
+  "name": "@hathor/ct-crypto-mobile",
+  "version": "0.0.1-shielded",
+  "description": "React Native (iOS/Android) shielded crypto provider for Hathor confidential transactions. Rust core over UniFFI, bridged as a native module; implements the @hathor/ct-crypto-provider interface.",
+  "main": "js/index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./js/index.js"
+    }
+  },
+  "files": [
+    "js/index.js",
+    "index.d.ts",
+    "ios/",
+    "android/",
+    "hathor-ct-crypto-mobile.podspec",
+    "LICENSE",
+    "README.md",
+    "SHA256SUMS"
+  ],
+  "scripts": {
+    "test": "jest",
+    "prepublishOnly": "node -e \"const fs=require('fs');for (const p of ['ios/HathorCtCrypto.xcframework','android/src/main/jniLibs']) if (!fs.existsSync(p)) { console.error('missing native binaries: '+p+' \u2014 publish from the CI npm-package-mobile artifact, not the repo checkout'); process.exit(1); }\""
+  },
+  "dependencies": {
+    "@hathor/ct-crypto-provider": "0.0.1-shielded",
+    "buffer": "6.0.3"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-native": ">=0.73.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-native": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "jest": "29.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HathorNetwork/hathor-ct-crypto",
+    "directory": "packages/ct-crypto-mobile"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

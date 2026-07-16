@@ -2,7 +2,7 @@
   "name": "@hathor/ct-crypto-wasm",
   "version": "0.0.1-shielded",
   "description": "Browser-compatible (wasm-bindgen) build of the Hathor confidential-transaction crypto primitives. Verifier-only: see @hathor/ct-crypto-node for the full Node surface.",
-  "//": "NEW-09: this root manifest is a DEV manifest only. The publishable package is generated under pkg/ by scripts/build-wasm.sh (which rewrites name/exports/files/dependencies). main/module/types below point at pkg/-only artifacts and MUST NOT be published from this directory — hence private:true.",
+  "//": "This root manifest is a DEV manifest only. The publishable package is generated under pkg/ by scripts/build-wasm.sh (which rewrites name/exports/files/dependencies). main/module/types below point at pkg/-only artifacts and MUST NOT be published from this directory — hence private:true.",
   "private": true,
   "type": "module",
   "main": "hathor_ct_crypto_wasm.js",

@@ -132,7 +132,7 @@ pub fn derive_ecdh_shared_secret_uniffi(privkey: Vec<u8>, pubkey: Vec<u8>) -> Re
 
 #[uniffi::export]
 pub fn derive_rewind_nonce_uniffi(shared_secret: Vec<u8>) -> Result<Vec<u8>, CryptoError> {
-    // SEC-01: reject wrong-length input rather than silently substituting an
+    // Reject wrong-length input rather than silently substituting an
     // all-zero shared secret (which would yield the publicly computable
     // SHA256("Hathor_CT_nonce_v1" || 0^32)). Matches the NAPI / core behavior.
     let ss: [u8; 32] = shared_secret
@@ -342,7 +342,7 @@ pub fn decrypt_shielded_output_uniffi(
 
     let proof = hathor_ct_crypto_core::rangeproof::deserialize_range_proof(&range_proof)?;
     let comm = hathor_ct_crypto_core::pedersen::deserialize_commitment(&commitment)?;
-    // BIND-09: a successful rewind already verifies the proof against the
+    // A successful rewind already verifies the proof against the
     // commitment inside libsecp256k1 (rangeproof_rewind runs the full verifier),
     // and consensus enforces the range bound. NAPI and WASM do not re-verify
     // here; drop the redundant call so all three surfaces behave identically.
@@ -373,7 +373,7 @@ pub fn create_surjection_proof_uniffi(
     Ok(hathor_ct_crypto_core::surjection::serialize_surjection_proof(&proof))
 }
 
-// BIND-04: long-form field names matching the provider contract
+// Long-form field names matching the provider contract
 // ({ value, valueBlindingFactor, generatorBlindingFactor }); UniFFI lifts these
 // as camelCase in Swift/Kotlin.
 #[derive(uniffi::Record)]
@@ -383,7 +383,7 @@ pub struct BlindingEntry {
     pub generator_blinding_factor: Vec<u8>,
 }
 
-// BIND-07: the previous `compute_balancing_blinding_factor_uniffi` naively
+// The previous `compute_balancing_blinding_factor_uniffi` naively
 // negated the sum of blinding factors, which is only correct for a pure
 // AmountShielded flow whose inputs are pre-sign-flipped by the caller — it is
 // unsound for FullShielded and any tx with value-weighted generator terms. It
@@ -429,7 +429,7 @@ pub fn get_zero_tweak_uniffi() -> Vec<u8> {
 /// once mobile picks up this new export.
 #[uniffi::export]
 pub fn generate_random_blinding_factor_uniffi() -> Vec<u8> {
-    // NEW-07: delegate to the validated core generator (rejection-samples until
+    // Delegate to the validated core generator (rejection-samples until
     // the bytes are a non-zero, in-range secp256k1 scalar) rather than emitting
     // raw thread_rng bytes.
     hathor_ct_crypto_core::ecdh::generate_random_blinding_factor().to_vec()
@@ -458,7 +458,7 @@ pub fn create_commitment_uniffi(
 mod tests {
     use super::*;
 
-    // SEC-01: derive_rewind_nonce_uniffi must reject wrong-length input rather
+    // derive_rewind_nonce_uniffi must reject wrong-length input rather
     // than substitute an all-zero secret (publicly computable nonce).
     #[test]
     fn test_derive_rewind_nonce_rejects_wrong_length() {
@@ -472,7 +472,7 @@ mod tests {
         assert_eq!(got, expected);
     }
 
-    // BIND-07: the canonical balancing function is value/generator-aware and
+    // The canonical balancing function is value/generator-aware and
     // matches crypto-core's compute_balancing_blinding_factor for a shape where
     // the naive negate-sum would give a different (wrong) answer.
     #[test]
@@ -500,7 +500,7 @@ mod tests {
         assert_eq!(via_uniffi, via_core.as_ref().to_vec());
     }
 
-    // SEC-01 / NEW-07: the mobile RNG entry point returns a valid non-zero scalar.
+    // The mobile RNG entry point returns a valid non-zero scalar.
     #[test]
     fn test_uniffi_random_blinding_is_valid() {
         let bf = generate_random_blinding_factor_uniffi();

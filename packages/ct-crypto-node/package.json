@@ -1,7 +1,7 @@
 {
   "name": "@hathor/ct-crypto-node",
   "version": "0.0.1-shielded",
-  "description": "Hathor confidential transaction cryptography — NAPI native addon for Node.js + UniFFI bindings for mobile. Implements @hathor/ct-crypto-provider's IShieldedCryptoProvider via the './provider' subpath.",
+  "description": "Hathor confidential transaction cryptography \u2014 NAPI native addon for Node.js. Implements @hathor/ct-crypto-provider's IShieldedCryptoProvider via the './provider' subpath. Mobile lives in @hathor/ct-crypto-mobile.",
   "main": "index.js",
   "types": "index.d.ts",
   "exports": {

@@ -11,9 +11,8 @@
  * Round-trip tests against the real NAPI addon. Verifies:
  *   - The NodeShieldedProvider conforms structurally to IShieldedCryptoProvider
  *   - Commitment math actually works (open* reproduces what create* produced)
- *   - The new generate_random_blinding_factor_uniffi parity is exercised
- *     indirectly via the existing NAPI generate_random_blinding_factor —
- *     we don't have a UniFFI-test path here (mobile carries that test).
+ *   - RNG comes from the NAPI generate_random_blinding_factor (the mobile
+ *     package carries the equivalent test for its own surface).
  *
  * If the prebuild for the local platform isn't available the entire suite
  * is skipped — a CI matrix without ct-crypto-node prebuilds won't fail.
@@ -27,7 +26,7 @@ try {
   providerLoadError = e;
 }
 
-// TEST-01: in CI we set CT_CRYPTO_REQUIRE_NATIVE=1 so a missing/broken addon
+// In CI we set CT_CRYPTO_REQUIRE_NATIVE=1 so a missing/broken addon
 // FAILS the suite instead of silently skipping (which would let the "real
 // crypto" job go green having exercised nothing). Locally the var is unset and
 // the suite skips gracefully when no prebuild exists for the platform.

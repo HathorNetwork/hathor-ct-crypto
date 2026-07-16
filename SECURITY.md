@@ -22,12 +22,13 @@ timeline after triage. Please allow coordinated disclosure before publicizing.
 
 ## Scope
 
-In scope: `crypto-core`, the NAPI/UniFFI/WASM bindings, the TypeScript provider,
-and the published npm packages (`@hathor/ct-crypto-node`, `@hathor/ct-crypto-wasm`,
+In scope: `crypto-core`, the NAPI/UniFFI/WASM bindings, the React Native
+bridge, the TypeScript provider, and the published npm packages
+(`@hathor/ct-crypto-node`, `@hathor/ct-crypto-wasm`, `@hathor/ct-crypto-mobile`,
 `@hathor/ct-crypto-provider`).
 
 Consensus-critical note: this library must remain byte-compatible with the
 hathor-core node (the source of truth). Divergences that would let a client build
 a transaction the node rejects — or verify something the node would not — are
 treated as high severity even when no direct fund loss is demonstrated. See
-`UPSTREAM.md` for the fork anchor and the core-sync drift check.
+`UPSTREAM.md` for the fork anchor and the sync policy.

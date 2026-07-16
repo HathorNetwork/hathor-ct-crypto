@@ -2,7 +2,10 @@
 
 Native NAPI addon for Hathor confidential transaction cryptography.
 
-Provides Pedersen commitments, Bulletproof range proofs, surjection proofs, and ECDH-based shielded output creation/decryption using secp256k1-zkp.
+Provides Pedersen commitments, Borromean-style range proofs (secp256k1-zkp,
+40-bit range), surjection proofs, balance verification, and ECDH-based
+shielded output creation/decryption. The full signing + verifying surface —
+wallet-lib and wallet-headless use this package.
 
 ## Installation
 
@@ -11,30 +14,41 @@ npm install @hathor/ct-crypto-node
 ```
 
 Prebuilt binaries are included for:
-- macOS ARM64 (Apple Silicon)
-- macOS x64 (Intel)
-- Linux x64
-- Linux ARM64
+
+- macOS: `darwin-arm64` (Apple Silicon), `darwin-x64` (Intel)
+- Linux glibc: `linux-x64-glibc`, `linux-arm64-glibc`
+- Linux musl (Alpine — wallet-headless's Docker base): `linux-x64-musl`, `linux-arm64-musl`
+- Windows: `win32-x64`
+
+The loader detects the platform, architecture, and (on Linux) the C library
+at require-time and picks the matching prebuild automatically.
+
+## Usage
+
+```js
+const { createDefaultShieldedCryptoProvider } = require('@hathor/ct-crypto-node/provider');
+wallet.setShieldedCryptoProvider(createDefaultShieldedCryptoProvider());
+```
+
+The `./provider` subpath exports a `NodeShieldedProvider` implementing
+`@hathor/ct-crypto-provider`'s `IShieldedCryptoProvider`. The package root
+exports the raw NAPI functions for advanced consumers.
 
 ## Building from source
 
-Requires Rust toolchain:
+Requires a Rust toolchain:
 
 ```bash
 cargo build --features napi --release
 ```
 
-## Publishing
+## Releasing
 
-1. Push a tag to trigger CI builds: `git tag v0.3.0 && git push --tags`
-2. Wait for the GitHub Actions `build` workflow to complete
-3. Download the `npm-package` artifact from the workflow run
-4. Extract and publish:
-
-```bash
-cd npm-package/
-npm publish --access public
-```
+Releases are CI-built: pushing a `vX.Y.Z` tag makes the `Build native addon`
+workflow compile all seven prebuilds, assert none is missing, and upload a
+ready-to-publish `npm-package` artifact (with `SHA256SUMS` for the binaries).
+A maintainer downloads that artifact and runs `npm publish` from it — the
+binaries that reach npm are always the CI-built ones, never a laptop build.
 
 ## License
 

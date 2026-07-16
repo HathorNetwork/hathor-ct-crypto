@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crypto-core",
+    "packages/ct-crypto-mobile",
     "packages/ct-crypto-node",
     "packages/ct-crypto-wasm",
 ]

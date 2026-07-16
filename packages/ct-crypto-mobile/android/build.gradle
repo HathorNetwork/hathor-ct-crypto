@@ -1,0 +1,58 @@
+// @hathor/ct-crypto-mobile — Android side of the RN native module.
+// The compiled Rust core arrives as jniLibs/*.so (built by CI via cargo-ndk,
+// shipped in the npm tarball — not present in a plain git checkout).
+
+buildscript {
+  ext.safeExtGet = { prop, fallback ->
+    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+  }
+  repositories {
+    google()
+    mavenCentral()
+  }
+  dependencies {
+    classpath "com.android.tools.build:gradle:${safeExtGet('gradlePluginVersion', '8.1.1')}"
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${safeExtGet('kotlinVersion', '1.9.24')}"
+  }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+android {
+  namespace 'network.hathor.ctcrypto'
+  compileSdkVersion safeExtGet('compileSdkVersion', 34)
+
+  defaultConfig {
+    minSdkVersion safeExtGet('minSdkVersion', 24)
+    targetSdkVersion safeExtGet('targetSdkVersion', 34)
+    // JNA + the UniFFI-generated bindings map native symbols and struct
+    // fields by NAME (reflection); R8 shrinking in a consuming app would
+    // break the FFI at runtime without these keep rules.
+    consumerProguardFiles 'consumer-rules.pro'
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = "17"
+  }
+}
+
+repositories {
+  google()
+  mavenCentral()
+}
+
+dependencies {
+  implementation 'com.facebook.react:react-native:+'
+  // The UniFFI-generated Kotlin bindings load the Rust library through JNA.
+  // 5.17+ ships a 16 KB page-size-aligned libjnidispatch.so, required by
+  // Google Play for apps targeting Android 15+.
+  implementation 'net.java.dev.jna:jna:5.17.0@aar'
+  implementation "org.jetbrains.kotlin:kotlin-stdlib:${safeExtGet('kotlinVersion', '1.9.24')}"
+  implementation 'androidx.annotation:annotation:1.7.1'
+}

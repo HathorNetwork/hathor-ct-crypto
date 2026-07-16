@@ -2,8 +2,8 @@
 
 The interface and abstract class for Hathor shielded crypto providers. This
 package contains no crypto — it defines the contract that
-`@hathor/ct-crypto-node`, `@hathor/ct-crypto-wasm`, and the mobile
-`hathor-wallet-mobile/src/shieldedCryptoProvider.js` each implement.
+`@hathor/ct-crypto-node`, `@hathor/ct-crypto-wasm`, and
+`@hathor/ct-crypto-mobile` each implement.
 
 ## What's in here
 

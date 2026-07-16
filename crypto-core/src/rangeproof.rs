@@ -57,7 +57,7 @@ pub fn create_range_proof(
     message: Option<&[u8]>,
     nonce: Option<&SecretKey>,
 ) -> Result<RangeProof> {
-    // CRY-02: reject amounts that would exceed the fixed 40-bit floor. Above
+    // Reject amounts that would exceed the fixed 40-bit floor. Above
     // this bound secp256k1-zkp sizes the proof to the value's true bit-length,
     // leaking magnitude through proof length; the node accepts such proofs, so
     // rejecting here (rather than producing them) is the only safe behavior.
@@ -179,7 +179,7 @@ pub fn serialize_range_proof(proof: &RangeProof) -> Vec<u8> {
 
 /// Deserialize a range proof from bytes.
 ///
-/// ROB-02: enforce the node's consensus wire cap (`MAX_RANGE_PROOF_SIZE`) so the
+/// Enforce the node's consensus wire cap (`MAX_RANGE_PROOF_SIZE`) so the
 /// library is self-protecting against oversize attacker-supplied buffers rather
 /// than relying on every consumer to bound the input.
 pub fn deserialize_range_proof(bytes: &[u8]) -> Result<RangeProof> {
@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn test_proof_size_fits_fullnode_cap() {
-        // CRY-05 regression: the serialized proof must fit the node's consensus
+        // Regression: the serialized proof must fit the node's consensus
         // wire cap (MAX_RANGE_PROOF_SIZE = 3328, mirroring hathorlib). If this
         // ever exceeds the cap the client would build proofs the node rejects.
         let gen = htr_asset_tag();
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_oversize_amount_rejected() {
-        // CRY-02: amounts past the 40-bit floor must be rejected, not turned
+        // Amounts past the 40-bit floor must be rejected, not turned
         // into oversize, magnitude-leaking proofs.
         let gen = htr_asset_tag();
         let blinding = Tweak::new(&mut rand::thread_rng());
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_deserialize_oversize_proof_rejected() {
-        // ROB-02: a buffer larger than the node's wire cap is rejected before
+        // A buffer larger than the node's wire cap is rejected before
         // it reaches the C parser.
         let too_big = vec![0u8; MAX_RANGE_PROOF_SIZE + 1];
         assert!(deserialize_range_proof(&too_big).is_err());

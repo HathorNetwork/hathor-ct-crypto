@@ -25,13 +25,13 @@ fileprivate extension RustBuffer {
     }
 
     static func from(_ ptr: UnsafeBufferPointer<UInt8>) -> RustBuffer {
-        try! rustCall { ffi_hathor_ct_crypto_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
+        try! rustCall { ffi_hathor_ct_crypto_mobile_rustbuffer_from_bytes(ForeignBytes(bufferPointer: ptr), $0) }
     }
 
     // Frees the buffer in place.
     // The buffer must not be used after this is called.
     func deallocate() {
-        try! rustCall { ffi_hathor_ct_crypto_rustbuffer_free(self, $0) }
+        try! rustCall { ffi_hathor_ct_crypto_mobile_rustbuffer_free(self, $0) }
     }
 }
 
@@ -1045,7 +1045,7 @@ fileprivate struct FfiConverterSequenceTypeSurjectionDomainEntry: FfiConverterRu
 }
 public func computeBalancingBlindingFactorUniffi(value: UInt64, generatorBlindingFactor: Data, inputs: [BlindingEntry], otherOutputs: [BlindingEntry])throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_compute_balancing_blinding_factor_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_compute_balancing_blinding_factor_uniffi(
         FfiConverterUInt64.lower(value),
         FfiConverterData.lower(generatorBlindingFactor),
         FfiConverterSequenceTypeBlindingEntry.lower(inputs),
@@ -1055,7 +1055,7 @@ public func computeBalancingBlindingFactorUniffi(value: UInt64, generatorBlindin
 }
 public func createAssetCommitmentUniffi(tag: Data, blindingFactor: Data)throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_create_asset_commitment_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_create_asset_commitment_uniffi(
         FfiConverterData.lower(tag),
         FfiConverterData.lower(blindingFactor),$0
     )
@@ -1071,7 +1071,7 @@ public func createAssetCommitmentUniffi(tag: Data, blindingFactor: Data)throws  
  */
 public func createCommitmentUniffi(value: UInt64, blindingFactor: Data, generator: Data)throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_create_commitment_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_create_commitment_uniffi(
         FfiConverterUInt64.lower(value),
         FfiConverterData.lower(blindingFactor),
         FfiConverterData.lower(generator),$0
@@ -1080,7 +1080,7 @@ public func createCommitmentUniffi(value: UInt64, blindingFactor: Data, generato
 }
 public func createShieldedOutputUniffi(value: UInt64, recipientPubkey: Data, tokenUid: Data, fullyShielded: Bool)throws  -> CreatedShieldedOutput {
     return try  FfiConverterTypeCreatedShieldedOutput.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_create_shielded_output_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_create_shielded_output_uniffi(
         FfiConverterUInt64.lower(value),
         FfiConverterData.lower(recipientPubkey),
         FfiConverterData.lower(tokenUid),
@@ -1090,7 +1090,7 @@ public func createShieldedOutputUniffi(value: UInt64, recipientPubkey: Data, tok
 }
 public func createShieldedOutputWithBlindingUniffi(value: UInt64, recipientPubkey: Data, tokenUid: Data, fullyShielded: Bool, blindingFactor: Data)throws  -> CreatedShieldedOutput {
     return try  FfiConverterTypeCreatedShieldedOutput.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_create_shielded_output_with_blinding_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_create_shielded_output_with_blinding_uniffi(
         FfiConverterUInt64.lower(value),
         FfiConverterData.lower(recipientPubkey),
         FfiConverterData.lower(tokenUid),
@@ -1101,7 +1101,7 @@ public func createShieldedOutputWithBlindingUniffi(value: UInt64, recipientPubke
 }
 public func createShieldedOutputWithBothBlindingsUniffi(value: UInt64, recipientPubkey: Data, tokenUid: Data, valueBlindingFactor: Data, assetBlindingFactor: Data)throws  -> CreatedShieldedOutput {
     return try  FfiConverterTypeCreatedShieldedOutput.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_create_shielded_output_with_both_blindings_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_create_shielded_output_with_both_blindings_uniffi(
         FfiConverterUInt64.lower(value),
         FfiConverterData.lower(recipientPubkey),
         FfiConverterData.lower(tokenUid),
@@ -1112,7 +1112,7 @@ public func createShieldedOutputWithBothBlindingsUniffi(value: UInt64, recipient
 }
 public func createSurjectionProofUniffi(codomainTag: Data, codomainBlindingFactor: Data, domain: [SurjectionDomainEntry])throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_create_surjection_proof_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_create_surjection_proof_uniffi(
         FfiConverterData.lower(codomainTag),
         FfiConverterData.lower(codomainBlindingFactor),
         FfiConverterSequenceTypeSurjectionDomainEntry.lower(domain),$0
@@ -1121,7 +1121,7 @@ public func createSurjectionProofUniffi(codomainTag: Data, codomainBlindingFacto
 }
 public func decryptShieldedOutputUniffi(recipientPrivkey: Data, ephemeralPubkey: Data, commitment: Data, rangeProof: Data, tokenUid: Data?, assetCommitment: Data?)throws  -> DecryptedShieldedOutput {
     return try  FfiConverterTypeDecryptedShieldedOutput.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_decrypt_shielded_output_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_decrypt_shielded_output_uniffi(
         FfiConverterData.lower(recipientPrivkey),
         FfiConverterData.lower(ephemeralPubkey),
         FfiConverterData.lower(commitment),
@@ -1133,14 +1133,14 @@ public func decryptShieldedOutputUniffi(recipientPrivkey: Data, ephemeralPubkey:
 }
 public func deriveAssetTagUniffi(tokenUid: Data)throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_derive_asset_tag_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_derive_asset_tag_uniffi(
         FfiConverterData.lower(tokenUid),$0
     )
 })
 }
 public func deriveEcdhSharedSecretUniffi(privkey: Data, pubkey: Data)throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_derive_ecdh_shared_secret_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_derive_ecdh_shared_secret_uniffi(
         FfiConverterData.lower(privkey),
         FfiConverterData.lower(pubkey),$0
     )
@@ -1148,14 +1148,14 @@ public func deriveEcdhSharedSecretUniffi(privkey: Data, pubkey: Data)throws  -> 
 }
 public func deriveRewindNonceUniffi(sharedSecret: Data)throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_derive_rewind_nonce_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_derive_rewind_nonce_uniffi(
         FfiConverterData.lower(sharedSecret),$0
     )
 })
 }
 public func deriveTagUniffi(tokenUid: Data)throws  -> Data {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
-    uniffi_hathor_ct_crypto_fn_func_derive_tag_uniffi(
+    uniffi_hathor_ct_crypto_mobile_fn_func_derive_tag_uniffi(
         FfiConverterData.lower(tokenUid),$0
     )
 })
@@ -1172,19 +1172,19 @@ public func deriveTagUniffi(tokenUid: Data)throws  -> Data {
  */
 public func generateRandomBlindingFactorUniffi() -> Data {
     return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_hathor_ct_crypto_fn_func_generate_random_blinding_factor_uniffi($0
+    uniffi_hathor_ct_crypto_mobile_fn_func_generate_random_blinding_factor_uniffi($0
     )
 })
 }
 public func getZeroTweakUniffi() -> Data {
     return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_hathor_ct_crypto_fn_func_get_zero_tweak_uniffi($0
+    uniffi_hathor_ct_crypto_mobile_fn_func_get_zero_tweak_uniffi($0
     )
 })
 }
 public func htrAssetTagUniffi() -> Data {
     return try!  FfiConverterData.lift(try! rustCall() {
-    uniffi_hathor_ct_crypto_fn_func_htr_asset_tag_uniffi($0
+    uniffi_hathor_ct_crypto_mobile_fn_func_htr_asset_tag_uniffi($0
     )
 })
 }
@@ -1200,53 +1200,53 @@ private var initializationResult: InitializationResult = {
     // Get the bindings contract version from our ComponentInterface
     let bindings_contract_version = 26
     // Get the scaffolding contract version by calling the into the dylib
-    let scaffolding_contract_version = ffi_hathor_ct_crypto_uniffi_contract_version()
+    let scaffolding_contract_version = ffi_hathor_ct_crypto_mobile_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_compute_balancing_blinding_factor_uniffi() != 62172) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_compute_balancing_blinding_factor_uniffi() != 8749) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_create_asset_commitment_uniffi() != 41953) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_asset_commitment_uniffi() != 10504) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_create_commitment_uniffi() != 12123) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_commitment_uniffi() != 60745) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_create_shielded_output_uniffi() != 24504) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_uniffi() != 39686) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_create_shielded_output_with_blinding_uniffi() != 11551) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_with_blinding_uniffi() != 22572) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_create_shielded_output_with_both_blindings_uniffi() != 5386) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_with_both_blindings_uniffi() != 37521) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_create_surjection_proof_uniffi() != 18457) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_surjection_proof_uniffi() != 63569) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_decrypt_shielded_output_uniffi() != 62480) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_decrypt_shielded_output_uniffi() != 24251) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_derive_asset_tag_uniffi() != 36682) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_derive_asset_tag_uniffi() != 7257) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_derive_ecdh_shared_secret_uniffi() != 38759) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_derive_ecdh_shared_secret_uniffi() != 36587) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_derive_rewind_nonce_uniffi() != 53256) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_derive_rewind_nonce_uniffi() != 49105) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_derive_tag_uniffi() != 39810) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_derive_tag_uniffi() != 3544) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_generate_random_blinding_factor_uniffi() != 60383) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_generate_random_blinding_factor_uniffi() != 44678) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_get_zero_tweak_uniffi() != 37883) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_get_zero_tweak_uniffi() != 41719) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_checksum_func_htr_asset_tag_uniffi() != 40191) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_htr_asset_tag_uniffi() != 41092) {
         return InitializationResult.apiChecksumMismatch
     }
 

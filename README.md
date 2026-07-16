@@ -11,7 +11,8 @@ hathor-ct-crypto/
 ├── crypto-core/                   # Pure-Rust crypto primitives (not published)
 └── packages/
     ├── ct-crypto-provider/        # @hathor/ct-crypto-provider — abstract class + interface (TS, pure)
-    ├── ct-crypto-node/            # @hathor/ct-crypto-node — NAPI bindings + UniFFI bindings + Node provider
+    ├── ct-crypto-node/            # @hathor/ct-crypto-node — NAPI bindings + Node provider
+    ├── ct-crypto-mobile/          # @hathor/ct-crypto-mobile — UniFFI (Swift/Kotlin) + RN bridge + mobile provider
     └── ct-crypto-wasm/            # @hathor/ct-crypto-wasm — wasm-bindgen bindings + browser provider
 ```
 
@@ -28,10 +29,15 @@ backend calls.
 
 ### `@hathor/ct-crypto-node`
 
-NAPI native addon for Node.js (signing + verifying full surface) plus
-UniFFI bindings (consumed by `hathor-wallet-mobile`'s iOS + Android
-native modules). Exports a `NodeShieldedProvider` factory via the
-`./provider` subpath.
+NAPI native addon for Node.js (signing + verifying full surface).
+Exports a `NodeShieldedProvider` factory via the `./provider` subpath.
+
+### `@hathor/ct-crypto-mobile`
+
+React Native library for iOS + Android. The Rust core compiled per
+mobile target (XCFramework / jniLibs), exposed over UniFFI-generated
+Swift/Kotlin, bridged as the `HathorCtCrypto` native module, and wrapped
+by a `MobileShieldedProvider`. Consumed by `hathor-wallet-mobile`.
 
 ### `@hathor/ct-crypto-wasm`
 
@@ -52,12 +58,19 @@ npm run build             # build each package that has a build script
 npm test                  # run each package's tests
 ```
 
-## Versioning
+## Versioning & releases
 
-Lockstep: all three packages publish under the same monorepo-level
-version. A breaking change to the abstract class bumps every package
-simultaneously. Releases are tagged `vX.Y.Z-shielded` while the feature
-is still in prerelease.
+Lockstep: all four packages publish under the same monorepo-level version.
+A breaking change to the abstract class bumps every package simultaneously.
+
+A release is driven by a `vX.Y.Z` tag: CI builds the native artifacts
+(`build-node.yml` → the 7 NAPI prebuilds; `build-mobile.yml` → the iOS
+XCFramework + Android jniLibs) and uploads ready-to-publish package
+artifacts with binary checksums. A maintainer downloads those artifacts,
+builds the pure-TS provider and the wasm `pkg/` locally, and publishes all
+four packages to npm — so published binaries always come from CI. (Early
+prereleases were published under the `shielded` dist-tag; stable versions
+go to `latest`.)
 
 ## License
 

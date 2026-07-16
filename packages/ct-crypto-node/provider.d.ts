@@ -1,4 +1,4 @@
-// NEW-05: type declarations for the ./provider subpath.
+// Type declarations for the ./provider subpath.
 // Without these, TS consumers importing '@hathor/ct-crypto-node/provider' get
 // implicit `any` (or a hard error under noImplicitAny), losing type checking on
 // the crypto boundary where bigint-vs-number and Buffer-vs-Uint8Array mistakes

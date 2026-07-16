@@ -12,39 +12,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      # TEST-02: exercise the binding code, not just crypto-core.
+      # Exercise the binding crates, not just crypto-core. The mobile (UniFFI)
+      # crate is a plain workspace member, so it is built and tested here too.
       - name: cargo check (workspace, NAPI feature)
         run: cargo check --workspace --locked --features hathor-ct-crypto-node/napi
-      - name: cargo test (crypto-core + NAPI BigInt tests)
+      - name: cargo test (crypto-core + NAPI BigInt + UniFFI tests)
         run: cargo test --workspace --locked --features hathor-ct-crypto-node/napi
-      # Ensure the UniFFI surface at least compiles/type-checks on every PR.
-      - name: cargo check (UniFFI surface)
-        run: cargo check -p hathor-ct-crypto-node --locked --features uniffi
 
-  uniffi-drift:
-    name: uniffi bindings drift check (GAP2-01)
+  bindings-drift:
+    name: mobile bindings drift check (Swift + Kotlin)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      # Build the dylib with the UniFFI surface, regenerate the Swift bindings
-      # from it, and fail if the checked-in copy has drifted (root cause of
-      # BIND-02). Regenerate + commit swift-bindings/ whenever uniffi_bindings.rs
-      # changes.
+      # Regenerate the Swift and Kotlin bindings from the current Rust surface
+      # and fail if the checked-in copies have drifted. Stale committed bindings
+      # fatalError on the UniFFI checksum handshake at the first call on iOS —
+      # regenerate + commit ios/ + android/.../uniffi/ whenever
+      # packages/ct-crypto-mobile/src/uniffi_bindings.rs changes (see the
+      # package README for the exact commands).
       - name: Build UniFFI library
-        run: cargo build -p hathor-ct-crypto-node --locked --features uniffi --release
-      - name: Regenerate Swift bindings
+        run: cargo build -p hathor-ct-crypto-mobile --locked --release
+      - name: Regenerate Swift + Kotlin bindings
         run: |
-          cargo run -p hathor-ct-crypto-node --features uniffi-cli --bin uniffi-bindgen -- \
-            generate --library target/release/libhathor_ct_crypto.dylib \
-            --language swift --out-dir /tmp/swift-bindings-generated
+          cargo run -p hathor-ct-crypto-mobile --locked --features uniffi-cli --bin uniffi-bindgen -- \
+            generate --library target/release/libhathor_ct_crypto_mobile.dylib \
+            --language swift --out-dir /tmp/bindings-generated/swift
+          cargo run -p hathor-ct-crypto-mobile --locked --features uniffi-cli --bin uniffi-bindgen -- \
+            generate --library target/release/libhathor_ct_crypto_mobile.dylib \
+            --language kotlin --out-dir /tmp/bindings-generated/kotlin
       - name: Fail on drift
         run: |
-          diff -u packages/ct-crypto-node/swift-bindings/hathor_ct_crypto.swift \
-                  /tmp/swift-bindings-generated/hathor_ct_crypto.swift
+          set -e
+          diff -u packages/ct-crypto-mobile/ios/hathor_ct_crypto.swift \
+                  /tmp/bindings-generated/swift/hathor_ct_crypto.swift
+          diff -u packages/ct-crypto-mobile/ios/hathor_ct_cryptoFFI.h \
+                  /tmp/bindings-generated/swift/hathor_ct_cryptoFFI.h
+          diff -u packages/ct-crypto-mobile/ios/hathor_ct_cryptoFFI.modulemap \
+                  /tmp/bindings-generated/swift/hathor_ct_cryptoFFI.modulemap
+          diff -u packages/ct-crypto-mobile/android/src/main/java/uniffi/hathor_ct_crypto/hathor_ct_crypto.kt \
+                  /tmp/bindings-generated/kotlin/uniffi/hathor_ct_crypto/hathor_ct_crypto.kt
 
   audit:
-    name: dependency audit (NEW-18)
+    name: dependency audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,8 +78,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # TEST-01: build the real native addon and run the JS suites against it
-      # (not stubs/fakes). CT_CRYPTO_REQUIRE_NATIVE=1 makes the node suite FAIL
+      # Build the real native addon and run the JS suites against it (not
+      # stubs/fakes). CT_CRYPTO_REQUIRE_NATIVE=1 makes the node suite FAIL
       # rather than silently skip if the addon is missing.
       - name: Build native addon
         run: cargo build -p hathor-ct-crypto-node --locked --features napi --release
@@ -81,7 +91,7 @@ jobs:
           mkdir -p packages/ct-crypto-node/prebuilds/linux-x64-glibc
           cp target/release/libhathor_ct_crypto.so \
              packages/ct-crypto-node/prebuilds/linux-x64-glibc/ct-crypto.node
-      # NEW-17: npm ci validates the committed package-lock.json.
+      # npm ci validates the committed package-lock.json.
       - name: npm ci
         run: npm ci
       - name: npm run lint

@@ -1,4 +1,4 @@
-# NEW-18: automated dependency updates for all three ecosystems in this repo.
+# Automated dependency updates for every ecosystem in this repo.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -17,3 +17,11 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+
+  # The mobile package's Android side (JNA for the UniFFI bindings, AGP/Kotlin
+  # plugin fallbacks).
+  - package-ecosystem: gradle
+    directory: "/packages/ct-crypto-mobile/android"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

@@ -8,7 +8,7 @@ use crate::error::{HathorCtError, Result};
 ///
 /// `H` is the generator (asset tag), `G` is the standard secp256k1 generator.
 ///
-/// MEM-01: `amount * H + blinding * G` is the identity (point at infinity) when
+/// `amount * H + blinding * G` is the identity (point at infinity) when
 /// both `amount == 0` and `blinding == 0`. libsecp256k1 refuses to build that
 /// point (`pedersen_commit` returns 0) and secp256k1-zkp's wrapper then fires an
 /// `assert!`, which aborts the process across the NAPI/UniFFI FFI boundary and
@@ -32,7 +32,7 @@ pub fn create_commitment(
 ///
 /// Used for transparent inputs/outputs in the homomorphic balance equation.
 ///
-/// MEM-01: with an implicit zero blinding, `amount == 0` yields the identity
+/// With an implicit zero blinding, `amount == 0` yields the identity
 /// point and the same process-aborting `assert!` as `create_commitment`. Reject
 /// it with a clean error.
 pub fn create_trivial_commitment(amount: u64, generator: &Generator) -> Result<PedersenCommitment> {
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_identity_point_rejected_not_panic() {
-        // MEM-01: zero amount + zero blinding is the identity point. This must
+        // Zero amount + zero blinding is the identity point. This must
         // return Err (clean, catchable) rather than abort via assert!.
         let gen = htr_asset_tag();
         assert!(create_commitment(0, &ZERO_TWEAK, &gen).is_err());

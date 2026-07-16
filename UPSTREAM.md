@@ -17,22 +17,23 @@ any semantic divergence is potentially consensus-breaking.
 ## Known intentional deltas from the fork base
 
 - `rangeproof.rs`: added an explicit 40-bit amount cap (`MAX_PROVABLE_AMOUNT`)
-  and a deserialization size cap (`MAX_RANGE_PROOF_SIZE`) [CRY-02 / ROB-02].
-- `pedersen.rs`: identity-point guards on the commitment constructors [MEM-01].
-- `surjection.rs`: domain-size cap + bounded retry + deser size cap
-  [MEM-02 / NEW-06 / ROB-02].
-- `ecdh.rs`: rejection-sampling blinding generator + zeroization [NEW-07 / SEC-03].
+  and a deserialization size cap (`MAX_RANGE_PROOF_SIZE`).
+- `pedersen.rs`: identity-point guards on the commitment constructors.
+- `surjection.rs`: domain-size cap + bounded retry + deser size cap.
+- `ecdh.rs`: rejection-sampling blinding generator + zeroization.
 - `balance.rs` / NAPI `verify_balance`: kept in sync with core's
-  `excess_blinding_factor` (full-unshield) support [DIV-01].
+  `excess_blinding_factor` (full-unshield) support.
 
 ## Staying in sync
 
-The node moves. DIV-01 (the missing `excess_blinding_factor` parameter) happened
+The node moves. The missing `excess_blinding_factor` parameter happened
 precisely because the fork silently fell behind core commits
 `30b4d147` / `f708c8dc` / `e696effd`.
 
-CI runs a **core-sync drift check** (`.github/workflows/core-sync.yml`): it clones
-hathor-core at a pinned ref and diffs `hathor-ct-crypto/src/*.rs` against
-`crypto-core/src/*.rs`, allowlisting the intentional deltas above and rustfmt
-reflow, failing on any new semantic divergence. When it fails, review the node's
-change and port it here in lockstep (and update this file's pinned ref).
+Until an automated drift check lands in CI, syncing is a maintainer
+discipline: when hathor-core's crypto changes (today at
+`htr-rs/crates/htr-lib/src/` on the shielded-outputs branch line), diff it
+against `crypto-core/src/`, review the delta beyond the intentional ones
+listed above, port it here in lockstep, and update this file. The long-term
+plan is to upstream the hardening deltas and depend on the node's crate
+directly, eliminating the fork.

@@ -9,7 +9,7 @@ import { Buffer } from 'buffer';
 import { AbstractShieldedProvider } from '@hathor/ct-crypto-provider';
 import * as wasm from './hathor_ct_crypto_wasm.js';
 
-// BIND-11: browsers do not provide a `Buffer` global. Import it from the
+// Browsers do not provide a `Buffer` global. Import it from the
 // `buffer` package so every provider call works in a bundled browser
 // environment with no consumer configuration (webpack's ProvidePlugin does not
 // define `Buffer` by default).

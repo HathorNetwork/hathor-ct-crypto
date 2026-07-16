@@ -4,7 +4,7 @@ use crate::error::{HathorCtError, Result};
 
 /// Maximum number of domain (input) entries a surjection proof may reference.
 ///
-/// MEM-02: mirrors libsecp256k1's `SECP256K1_SURJECTIONPROOF_MAX_N_INPUTS`.
+/// Mirrors libsecp256k1's `SECP256K1_SURJECTIONPROOF_MAX_N_INPUTS`.
 /// Passing more than this into `SurjectionProof::new` trips a C `ARG_CHECK`
 /// illegal-callback, which aborts the process across the FFI boundary. We reject
 /// oversize domains with a clean error instead.
@@ -12,13 +12,13 @@ pub const MAX_SURJECTION_DOMAIN: usize = 256;
 
 /// Maximum serialized surjection-proof size accepted by the deserializer.
 ///
-/// ROB-02: the guide's hard buffer cap for surjection proofs. Bounds
+/// The guide's hard buffer cap for surjection proofs. Bounds
 /// attacker-supplied input before it reaches the C parser.
 pub const MAX_SURJECTION_PROOF_SIZE: usize = 4096;
 
 /// Number of attempts for the randomized surjection-proof construction.
 ///
-/// NEW-06: `SurjectionProof::new` selects a random subset of input tags; near
+/// `SurjectionProof::new` selects a random subset of input tags; near
 /// the domain limit a single attempt fails a non-trivial fraction of the time.
 /// secp256k1 expects the caller to retry with fresh randomness. A genuine error
 /// (e.g. codomain tag absent from the domain) still surfaces after the retries.
@@ -97,7 +97,7 @@ pub fn serialize_surjection_proof(proof: &SurjectionProof) -> Vec<u8> {
 
 /// Deserialize a surjection proof from bytes.
 ///
-/// ROB-02: enforce the guide's hard buffer cap (`MAX_SURJECTION_PROOF_SIZE`)
+/// Enforce the guide's hard buffer cap (`MAX_SURJECTION_PROOF_SIZE`)
 /// before handing attacker-supplied bytes to the C parser.
 pub fn deserialize_surjection_proof(bytes: &[u8]) -> Result<SurjectionProof> {
     if bytes.len() > MAX_SURJECTION_PROOF_SIZE {
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_oversize_domain_rejected_not_abort() {
-        // MEM-02: a domain larger than MAX_SURJECTION_DOMAIN must return Err
+        // A domain larger than MAX_SURJECTION_DOMAIN must return Err
         // rather than trip the C ARG_CHECK and abort the process.
         let (gen, tag, bf) = random_blinded_tag(&[1u8; 32]);
         let domain: Vec<(Generator, Tag, Tweak)> =
@@ -241,7 +241,8 @@ mod tests {
 
     #[test]
     fn test_deserialize_oversize_surjection_rejected() {
-        // ROB-02
+        // A buffer larger than MAX_SURJECTION_PROOF_SIZE is rejected before
+        // reaching the C parser.
         let too_big = vec![0u8; MAX_SURJECTION_PROOF_SIZE + 1];
         assert!(deserialize_surjection_proof(&too_big).is_err());
     }
