@@ -17,7 +17,7 @@ default-features = false
 features = ["napi8"]
 
 [dependencies.napi-derive]
-version = "2"
+version = "3"
 optional = true
 
 [build-dependencies]
