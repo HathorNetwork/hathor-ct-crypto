@@ -98,6 +98,127 @@ describe('WasmShieldedProvider — verifier-only subset', () => {
     });
   });
 
+  describe('rewind frees the wasm result after copying getters', () => {
+    it('calls .free() on the amount-shielded result', async () => {
+      await provider.rewindAmountShieldedOutput(
+        Buffer.alloc(32),
+        Buffer.alloc(33),
+        Buffer.alloc(33),
+        Buffer.alloc(64),
+        Buffer.alloc(32)
+      );
+      const names = __getRecordedCalls().map(c => c.name);
+      expect(names).toContain('rewindAmountShieldedOutput.free');
+    });
+
+    it('calls .free() on the full-shielded result', async () => {
+      await provider.rewindFullShieldedOutput(
+        Buffer.alloc(32),
+        Buffer.alloc(33),
+        Buffer.alloc(33),
+        Buffer.alloc(64),
+        Buffer.alloc(33)
+      );
+      const names = __getRecordedCalls().map(c => c.name);
+      expect(names).toContain('rewindFullShieldedOutput.free');
+    });
+  });
+
+  describe('optional verifier surface — implemented', () => {
+    it('verifyRangeProof forwards proof/commitment/generator + returns boolean', async () => {
+      const out = await provider.verifyRangeProof(
+        Buffer.alloc(64, 0x01),
+        Buffer.alloc(33, 0x02),
+        Buffer.alloc(33, 0x03)
+      );
+      expect(out).toBe(true);
+      const call = __getRecordedCalls()[0];
+      expect(call.name).toBe('verifyRangeProof');
+      expect(call.args).toHaveLength(3);
+    });
+
+    it('verifySurjectionProof passes the domain as an array', async () => {
+      const out = await provider.verifySurjectionProof(
+        Buffer.alloc(64, 0x01),
+        Buffer.alloc(33, 0x02),
+        [Buffer.alloc(33, 0x03), Buffer.alloc(33, 0x04)]
+      );
+      expect(out).toBe(true);
+      const call = __getRecordedCalls()[0];
+      expect(call.name).toBe('verifySurjectionProof');
+      expect(Array.isArray(call.args[2])).toBe(true);
+      expect(call.args[2]).toHaveLength(2);
+    });
+
+    it('verifyBalance splits ITransparentBalanceEntry[] into parallel arrays', async () => {
+      const out = await provider.verifyBalance(
+        [
+          { amount: 100n, tokenUid: Buffer.alloc(32, 0x00) },
+          { amount: 5n, tokenUid: Buffer.alloc(32, 0x11) },
+        ],
+        [Buffer.alloc(33, 0x22)],
+        [{ amount: 105n, tokenUid: Buffer.alloc(32, 0x00) }],
+        [Buffer.alloc(33, 0x33)],
+        Buffer.alloc(32, 0x44)
+      );
+      expect(out).toBe(true);
+      const call = __getRecordedCalls()[0];
+      expect(call.name).toBe('verifyBalance');
+      // amounts array, tokenUids array, shielded inputs, then outputs, excess.
+      expect(call.args[0]).toEqual([100n, 5n]);
+      expect(call.args[1]).toHaveLength(2);
+      expect(call.args[2]).toHaveLength(1); // shielded inputs
+      expect(call.args[3]).toEqual([105n]);
+      expect(call.args[4]).toHaveLength(1);
+      expect(call.args[5]).toHaveLength(1); // shielded outputs
+      expect(Buffer.isBuffer(call.args[6])).toBe(true); // excess
+    });
+
+    it('verifyBalance passes undefined excess when omitted', async () => {
+      await provider.verifyBalance([], [], [], []);
+      const call = __getRecordedCalls()[0];
+      expect(call.args[6]).toBeUndefined();
+    });
+
+    it('verifyCommitmentsSum maps both commitment lists', async () => {
+      const out = await provider.verifyCommitmentsSum(
+        [Buffer.alloc(33, 0x01), Buffer.alloc(33, 0x02)],
+        [Buffer.alloc(33, 0x03)]
+      );
+      expect(out).toBe(true);
+      const call = __getRecordedCalls()[0];
+      expect(call.name).toBe('verifyCommitmentsSum');
+      expect(call.args[0]).toHaveLength(2);
+      expect(call.args[1]).toHaveLength(1);
+    });
+
+    it('validateCommitment / validateGenerator forward a single Buffer', async () => {
+      expect(await provider.validateCommitment(Buffer.alloc(33, 0x05))).toBe(true);
+      expect(await provider.validateGenerator(Buffer.alloc(33, 0x06))).toBe(true);
+      const names = __getRecordedCalls().map(c => c.name);
+      expect(names).toEqual(['validateCommitment', 'validateGenerator']);
+    });
+  });
+
+  describe('_isScanMiss recognises the rewind scan-miss signal', () => {
+    it('returns true for a range-proof rewind failure (foreign output)', () => {
+      const err = new Error(
+        'range proof error: range proof rewind failed: failed to verify range proof'
+      );
+      expect(provider._isScanMiss(err)).toBe(true);
+    });
+
+    it('returns false for a malformed-input error (genuine failure)', () => {
+      expect(provider._isScanMiss(new Error('token_uid must be 32 bytes'))).toBe(false);
+      expect(provider._isScanMiss(new Error('generator must be 33 bytes'))).toBe(false);
+    });
+
+    it('tolerates a non-Error thrown value', () => {
+      expect(provider._isScanMiss('range proof rewind failed: x')).toBe(true);
+      expect(provider._isScanMiss(undefined)).toBe(false);
+    });
+  });
+
   describe('composed openers — work via verifier primitives', () => {
     it('openAmountShieldedCommitment composes deriveAssetTag + createCommitment', async () => {
       const out = await provider.openAmountShieldedCommitment(

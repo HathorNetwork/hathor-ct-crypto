@@ -7,6 +7,14 @@ on:
   pull_request:
     branches: [master]
 
+# Least privilege. This workflow builds prebuilds and uploads them as CI
+# artifacts; it does NOT publish to npm (that is done by a maintainer from the
+# artifact — see the NOTE at the bottom of this file). Artifact upload/download
+# use the Actions runtime token, not GITHUB_TOKEN scopes, so read-only is
+# sufficient everywhere here.
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -44,15 +52,15 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: ${{ matrix.target }}
 
@@ -82,7 +90,7 @@ jobs:
 
       - name: Upload prebuild artifact
         if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: prebuild-${{ matrix.prebuild-dir }}
           path: packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}/ct-crypto.node
@@ -91,8 +99,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
       - run: cargo test --workspace --locked --features hathor-ct-crypto-node/napi
 
   # Collect all prebuilds into the publishable package. Restricted to pushes to
@@ -102,10 +110,10 @@ jobs:
     if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Download all prebuild artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: prebuilds
           pattern: prebuild-*
@@ -147,10 +155,22 @@ jobs:
           cat SHA256SUMS
 
       - name: Upload npm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: npm-package
           path: packages/ct-crypto-node/npm-package/
+
+      # Out-of-band checksums. package.json ships SHA256SUMS INSIDE the tarball,
+      # so an attacker who tampered a prebuild could regenerate a matching
+      # in-tarball manifest — that copy proves nothing on its own. Upload the
+      # same manifest as a SEPARATE artifact so a verifier (release-publish.sh)
+      # can fetch it independently and diff it against the in-tarball copy;
+      # they must be byte-identical.
+      - name: Upload SHA256SUMS (out-of-band)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: node-sha256sums
+          path: packages/ct-crypto-node/npm-package/SHA256SUMS
 
   # NOTE: npm publish is intentionally NOT done here. On a `v*` tag this
   # workflow builds every prebuild and uploads the ready-to-publish

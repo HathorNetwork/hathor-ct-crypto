@@ -7,18 +7,49 @@ package contains no crypto — it defines the contract that
 
 ## What's in here
 
-- `IShieldedCryptoProvider` — the TS interface
+- `IShieldedCryptoProvider` — the TS interface. Includes an OPTIONAL verifier
+  surface (`verifyRangeProof?`, `verifySurjectionProof?`, `verifyBalance?`,
+  `verifyCommitmentsSum?`, `validateCommitment?`, `validateGenerator?`) —
+  feature-detect before calling, since not every platform ships it.
 - `AbstractShieldedProvider` — abstract class that pre-implements every
-  interface method, delegating to a smaller set of platform-specific
+  required interface method, delegating to a smaller set of platform-specific
   `_raw*` methods that subclasses fill in
-- Result/entry interfaces: `ICreatedShieldedOutput`, `IRewoundAmountShieldedOutput`, etc.
+- Result/entry interfaces: `ICreatedShieldedOutput`, `IRewoundAmountShieldedOutput`,
+  `ITransparentBalanceEntry`, etc.
+- `ScanMissError` — typed error for "output not addressed to this scan key"
+  (see below)
+- `ZERO_TWEAK` — the 32-byte all-zero scalar (the `generatorBlindingFactor`
+  for AmountShielded outputs)
+
+## Scan-miss handling
+
+When scanning the chain, most outputs are not addressed to a given scan key —
+`rewindAmountShieldedOutput` / `rewindFullShieldedOutput` reject in that case.
+To distinguish this benign "not mine" case from genuine corruption without
+string-matching messages, catch the exported `ScanMissError`:
+
+```ts
+import { ScanMissError } from '@hathor/ct-crypto-provider';
+
+try {
+  const rewound = await provider.rewindAmountShieldedOutput(/* … */);
+} catch (err) {
+  if (err instanceof ScanMissError) continue; // foreign output — skip
+  throw err;                                   // real failure
+}
+```
+
+`ScanMissError extends Error`, so code that catches generically is unaffected.
+A subclass raises it only when it recognises its binding's scan-miss condition
+(via the `_isScanMiss` hook); otherwise the original error propagates unchanged.
 
 ## Why an abstract class on top of the interface
 
 The three concrete providers all do the same wrapping work:
 
 - Promise-wrap sync underlying calls
-- Marshal Buffer ↔ platform-native byte type (Buffer / Uint8Array / number[])
+- Marshal Buffer ↔ platform-native byte type (Buffer for Node / Uint8Array for
+  WASM / base64 string for the mobile RN bridge)
 - Convert recovered `tokenUid` from Buffer to hex at the rewind boundary
 - Compose `openAmountShieldedCommitment` / `openFullShieldedCommitment`
   from `deriveTag` + `deriveAssetTag` + `createAssetCommitment` + `createCommitment`

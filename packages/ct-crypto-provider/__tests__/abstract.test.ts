@@ -13,6 +13,8 @@ import {
   IRawRewoundFullShieldedOutput,
   IRawSurjectionDomainEntry,
 } from '../src/abstract';
+import { ScanMissError } from '../src/errors';
+import { ZERO_TWEAK } from '../src/constants';
 
 /**
  * Fake subclass that:
@@ -381,6 +383,78 @@ describe('AbstractShieldedProvider — composed openers', () => {
       '_rawCreateAssetCommitment',
       '_rawCreateCommitment',
     ]);
+  });
+});
+
+/**
+ * Subclass whose rewind raw calls always throw, to exercise the scan-miss
+ * translation wiring. `recognizeScanMiss` toggles the `_isScanMiss` opt-in.
+ */
+class RewindThrowingProvider extends FakeShieldedProvider {
+  public recognizeScanMiss = false;
+  public readonly rawError = new Error('ecdh mismatch: not addressed to key');
+
+  protected _isScanMiss(err: unknown): boolean {
+    return this.recognizeScanMiss && err === this.rawError;
+  }
+  protected async _rawRewindAmountShieldedOutput(): Promise<IRawRewoundAmountShieldedOutput> {
+    throw this.rawError;
+  }
+  protected async _rawRewindFullShieldedOutput(): Promise<IRawRewoundFullShieldedOutput> {
+    throw this.rawError;
+  }
+}
+
+describe('AbstractShieldedProvider — scan-miss translation', () => {
+  const rewindAmount = (p: RewindThrowingProvider) =>
+    p.rewindAmountShieldedOutput(
+      Buffer.alloc(32),
+      Buffer.alloc(33),
+      Buffer.alloc(33),
+      Buffer.alloc(64),
+      Buffer.alloc(32)
+    );
+
+  it('re-throws the original error unchanged when _isScanMiss is not overridden', async () => {
+    const p = new RewindThrowingProvider();
+    await expect(rewindAmount(p)).rejects.toBe(p.rawError);
+    await expect(rewindAmount(p)).rejects.not.toBeInstanceOf(ScanMissError);
+  });
+
+  it('translates a recognised scan-miss into ScanMissError, preserving cause', async () => {
+    const p = new RewindThrowingProvider();
+    p.recognizeScanMiss = true;
+    let caught: unknown;
+    try {
+      await rewindAmount(p);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ScanMissError);
+    expect(caught).toBeInstanceOf(Error); // generic catchers still work
+    expect((caught as ScanMissError & { cause?: unknown }).cause).toBe(p.rawError);
+  });
+
+  it('translates full-shielded rewind scan-miss too', async () => {
+    const p = new RewindThrowingProvider();
+    p.recognizeScanMiss = true;
+    await expect(
+      p.rewindFullShieldedOutput(
+        Buffer.alloc(32),
+        Buffer.alloc(33),
+        Buffer.alloc(33),
+        Buffer.alloc(64),
+        Buffer.alloc(33)
+      )
+    ).rejects.toBeInstanceOf(ScanMissError);
+  });
+});
+
+describe('ZERO_TWEAK constant', () => {
+  it('is 32 zero bytes', () => {
+    expect(Buffer.isBuffer(ZERO_TWEAK)).toBe(true);
+    expect(ZERO_TWEAK).toHaveLength(32);
+    expect(ZERO_TWEAK.equals(Buffer.alloc(32))).toBe(true);
   });
 });
 

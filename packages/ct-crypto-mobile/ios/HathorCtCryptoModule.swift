@@ -28,6 +28,10 @@ class HathorCtCrypto: NSObject {
   // ─── marshaling helpers ───────────────────────────────────────────────────
 
   private func data(_ b64: String, _ name: String) throws -> Data {
+    // Strict base64 by design: no `.ignoreUnknownCharacters`, so whitespace,
+    // non-alphabet characters and unpadded input are rejected. The Android
+    // bridge (HathorCtCryptoModule.kt) validates with a matching strict regex
+    // so both native bridges accept EXACTLY the same inputs — keep them in sync.
     guard let d = Data(base64Encoded: b64) else {
       throw BridgeError.badInput("\(name) is not valid base64")
     }

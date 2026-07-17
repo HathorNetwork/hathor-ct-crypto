@@ -24,6 +24,16 @@ const { AbstractShieldedProvider } = require('@hathor/ct-crypto-provider');
  *
  * The abstract class handles everything else (Promise wrapping, tokenUid
  * hex normalisation, open* composition).
+ *
+ * Scope: this provider is prover + rewind oriented. The UniFFI surface backs
+ * output creation, rewind/decrypt, commitment/tag derivation, surjection
+ * proofs and the balancing factor — but NOT the OPTIONAL verifier surface
+ * (verifyRangeProof / verifySurjectionProof / verifyBalance /
+ * verifyCommitmentsSum / validateCommitment / validateGenerator). Those are
+ * left undefined per the optional `IShieldedCryptoProvider` contract; consumers
+ * feature-detect (`if (provider.verifyRangeProof) { ... }`). Do NOT stub them
+ * here — a fabricated verifier that always returns true/false would be worse
+ * than a missing one. Use @hathor/ct-crypto-node or -wasm for verification.
  */
 class MobileShieldedProvider extends AbstractShieldedProvider {
   constructor(nativeModule) {
@@ -56,6 +66,24 @@ class MobileShieldedProvider extends AbstractShieldedProvider {
       valueBlindingFactor: this._encodeBytes(entry.valueBlindingFactor),
       generatorBlindingFactor: this._encodeBytes(entry.generatorBlindingFactor),
     };
+  }
+
+  // A rewind failure crosses the RN bridge as a rejection whose `code` the
+  // native module sets (see HathorCtCryptoModule.{swift,kt} `rejectWith`):
+  //   - 'InvalidInput' — malformed / bad-length caller input (a programming
+  //     error). Propagate unchanged; it is NOT a scan-miss.
+  //   - 'CryptoFailed' — the rewind itself failed: the output is not addressed
+  //     to this scan key (the common, benign scan-miss while walking the chain)
+  //     or its proof/commitment did not open. During a scan the caller should
+  //     skip the output, so the abstract class translates this into the
+  //     provider's ScanMissError (preserving the native error as `cause`).
+  //
+  // This hook is only consulted on the rewind error paths, so a 'CryptoFailed'
+  // here unambiguously means the rewind crypto failed — matching the
+  // node/wasm "can't open / not ours" semantics. Overriding is purely additive:
+  // the base default returns false (original error re-thrown).
+  _isScanMiss(err) {
+    return err != null && err.code === 'CryptoFailed';
   }
 
   // ─── raw primitives (all args already encoded by the abstract class) ─────

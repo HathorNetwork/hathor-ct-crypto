@@ -1,0 +1,110 @@
+name: Build wasm package
+
+# Mirrors build-node.yml's trigger. Closes the gap where CI never built or
+# exercised the wasm32 (browser verifier) artifact: this workflow compiles the
+# real wasm32 binary, smoke-tests it with the REAL crypto (not the jest stub),
+# and runs the package's jest contract suite.
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+
+# Least privilege. Builds + tests only; publishing is done by a maintainer from
+# a local build (see release-publish.sh), never from this workflow.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Install Rust (wasm32 target)
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install clang + llvm-ar for the wasm32 cross-compile
+        # scripts/build-wasm.sh cross-compiles the bundled libsecp256k1 C source
+        # to wasm32. cc-rs needs an UNWRAPPED clang carrying the wasm32 backend
+        # plus llvm-ar (GNU ar cannot archive wasm objects). Stock ubuntu
+        # clang/llvm are unwrapped upstream LLVM, so — unlike the nix dev shell —
+        # no special toolchain juggling is needed here; just point cc-rs's
+        # per-target CC/AR at them (see flake.nix for the nix-side rationale).
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y clang llvm
+          CLANG_BIN="$(command -v clang)"
+          AR_BIN="$(command -v llvm-ar || ls /usr/bin/llvm-ar-* 2>/dev/null | sort -V | tail -1)"
+          test -n "$CLANG_BIN" || { echo "::error::clang not found"; exit 1; }
+          test -n "$AR_BIN"    || { echo "::error::llvm-ar not found"; exit 1; }
+          echo "CC_wasm32_unknown_unknown=$CLANG_BIN" >> "$GITHUB_ENV"
+          echo "AR_wasm32_unknown_unknown=$AR_BIN" >> "$GITHUB_ENV"
+
+      - name: Install wasm-pack
+        # Pinned for reproducibility (supply-chain). --locked builds wasm-pack
+        # from its own committed Cargo.lock. Bump deliberately.
+        run: cargo install wasm-pack --version 0.13.1 --locked
+
+      - name: Build wasm package (wasm32)
+        working-directory: packages/ct-crypto-wasm
+        run: bash scripts/build-wasm.sh
+
+      - name: Assert wasm artifact present
+        run: |
+          set -euo pipefail
+          PKG=packages/ct-crypto-wasm/pkg
+          for f in hathor_ct_crypto_wasm.js hathor_ct_crypto_wasm_bg.wasm hathor_ct_crypto_wasm.d.ts; do
+            test -f "$PKG/$f" || { echo "::error::missing $PKG/$f"; exit 1; }
+          done
+
+      - name: Smoke-test the REAL wasm32 crypto
+        # Load the freshly-built binary via initSync (explicit bytes, no fetch)
+        # and exercise deterministic verifier primitives. This runs the actual
+        # wasm32 crypto — NOT the jest stub — proving the browser verifier is
+        # built AND executes in CI. Asserts only structural shape (type/length/
+        # non-zero), never a specific consensus byte value.
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/wasm-smoke.mjs" <<'EOF'
+          import { readFileSync } from 'node:fs';
+          import { pathToFileURL } from 'node:url';
+          import { join } from 'node:path';
+          const pkg = process.argv[2];
+          const mod = await import(pathToFileURL(join(pkg, 'hathor_ct_crypto_wasm.js')).href);
+          mod.initSync({ module: readFileSync(join(pkg, 'hathor_ct_crypto_wasm_bg.wasm')) });
+          const htr = mod.htrAssetTag();
+          if (!(htr instanceof Uint8Array) || htr.length !== 33) throw new Error('htrAssetTag bad length: ' + (htr && htr.length));
+          if (htr.every(b => b === 0)) throw new Error('htrAssetTag returned all-zero');
+          const tag = mod.deriveTag(new Uint8Array(32));
+          if (!(tag instanceof Uint8Array) || tag.length !== 32) throw new Error('deriveTag bad length: ' + (tag && tag.length));
+          if (tag.every(b => b === 0)) throw new Error('deriveTag returned all-zero');
+          console.log('[wasm-smoke] OK real wasm32 crypto: htrAssetTag=' + htr.length + 'B deriveTag=' + tag.length + 'B');
+          EOF
+          node "$RUNNER_TEMP/wasm-smoke.mjs" "$GITHUB_WORKSPACE/packages/ct-crypto-wasm/pkg"
+
+      # npm ci validates the committed package-lock.json and builds the provider
+      # workspace (its `prepare` runs tsc), which the jest suite imports.
+      - name: npm ci
+        run: npm ci
+
+      - name: Run jest suite (wasm provider contract)
+        run: npm test --workspace=@hathor/ct-crypto-wasm
+
+      # Provenance: keep the CI-built pkg for inspection on master/tags. Release
+      # publishing still rebuilds the wasm locally (see release-publish.sh).
+      - name: Upload wasm pkg artifact
+        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wasm-pkg
+          path: packages/ct-crypto-wasm/pkg/

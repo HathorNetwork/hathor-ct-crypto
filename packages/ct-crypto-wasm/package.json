@@ -29,7 +29,8 @@
   ],
   "scripts": {
     "build": "bash scripts/build-wasm.sh",
-    "test": "jest"
+    "test": "jest",
+    "test:real": "NODE_OPTIONS=--experimental-vm-modules jest -c jest.real.config.cjs"
   },
   "dependencies": {
     "@hathor/ct-crypto-provider": "0.0.1-shielded",

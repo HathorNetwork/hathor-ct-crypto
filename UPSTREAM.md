@@ -1,39 +1,105 @@
 # Upstream / fork anchor
 
-`crypto-core/` is a fork of the crypto embedded in **hathor-core** at
-`hathor-ct-crypto/src/`. hathor-core is the running node and the **source of
-truth**: client-generated proofs and commitments MUST verify under the node, and
-any semantic divergence is potentially consensus-breaking.
+`crypto-core/` is a fork of the crypto embedded in **hathor-core**. hathor-core
+is the running node and the **source of truth**: client-generated proofs and
+commitments MUST verify under the node, and any semantic divergence is
+potentially consensus-breaking.
 
-## Fork base
+The node's crypto currently lives at **`htr-rs/crates/htr-lib/src/`** on the
+`experimental/shielded-outputs-alpha-*` branch line. It moved there from the
+now-retired `hathor-ct-crypto/src/` path — update any tooling that still points
+at the old location.
+
+## Tracked upstream tip
 
 - Upstream repo: `HathorNetwork/hathor-core`
-- Fork base commit: **`da513712`** (branch line `experimental/shielded-outputs-alpha-*`)
-  — identified by content: at this commit `balance.rs`, `pedersen.rs`,
-  `surjection.rs`, `generators.rs`, `types.rs`, `error.rs` are byte-identical to
-  this repo's `crypto-core/src/`, `ecdh.rs` differs only by rustfmt reflow, and
-  `rangeproof.rs` only by documentation/const-type drift.
+- Branch: **`experimental/shielded-outputs-alpha-v4`**
+- Tracked tip: **`b24229ffbbd2d9c15f7c003e8062e0a95bd75a4c`** (`b24229ff`),
+  verified 2026-07-16.
 
-## Known intentional deltas from the fork base
+Verified by content at this tip (`htr-rs/crates/htr-lib/src/` vs
+`crypto-core/src/`):
 
-- `rangeproof.rs`: added an explicit 40-bit amount cap (`MAX_PROVABLE_AMOUNT`)
-  and a deserialization size cap (`MAX_RANGE_PROOF_SIZE`).
-- `pedersen.rs`: identity-point guards on the commitment constructors.
-- `surjection.rs`: domain-size cap + bounded retry + deser size cap.
-- `ecdh.rs`: rejection-sampling blinding generator + zeroization.
-- `balance.rs` / NAPI `verify_balance`: kept in sync with core's
-  `excess_blinding_factor` (full-unshield) support.
+- `error.rs`, `types.rs` — **byte-identical**.
+- `generators.rs` — identical logic; differs only cosmetically (import order and
+  a `genr`→`gen` parameter rename).
+- `balance.rs` — semantically identical, including the `excess_blinding_factor`
+  full-unshield path; differs only by control-flow-equivalent phrasing
+  (nested `if let` vs let-chains).
+- `pedersen.rs`, `rangeproof.rs`, `surjection.rs`, `ecdh.rs`, `lib.rs` — differ
+  only by the documented intentional deltas below.
+
+The fork originated on this same `experimental/shielded-outputs-alpha-*` branch
+line. An exact fork-base commit is not asserted here: the crate has since moved
+paths, so the anchor is defined by the content parity above against the tracked
+tip, not by a base SHA.
+
+## Known intentional deltas from upstream
+
+All are either strictly *restrictive* (they can only reject inputs the node
+would otherwise accept-then-abort on) or non-behavioral — none changes the bytes
+of a producible artifact or a verification outcome:
+
+- `rangeproof.rs`: explicit 40-bit amount cap (`MAX_PROVABLE_AMOUNT` = 2⁴⁰) and a
+  deserialization size cap (`MAX_RANGE_PROOF_SIZE` = 3328 bytes). The range-proof
+  params (`min_value = 1`, `exp = 0`, `min_bits = 40`) are unchanged from the
+  node.
+- `pedersen.rs`: identity-point guards on the commitment constructors — reject
+  the zero-amount / zero-blinding identity point that upstream would
+  `assert!`-abort on across the FFI boundary.
+- `surjection.rs`: domain-size cap (`MAX_SURJECTION_DOMAIN` = 256, mirrors
+  libsecp256k1's `SECP256K1_SURJECTIONPROOF_MAX_N_INPUTS`) + bounded retry +
+  deserialization size cap (`MAX_SURJECTION_PROOF_SIZE` = 4096 bytes).
+- `ecdh.rs`: rejection-sampling blinding generator + best-effort zeroization of
+  secret material.
+- `lib.rs`: drops the node-only `signed_amount` / `unsigned_amount` modules and
+  the 64-bit-target `compile_error!` guard (so the crate also builds for
+  `wasm32`), and adds a `pub use types::*;` glob re-export. No consensus impact.
+- `balance.rs` / NAPI `verify_balance`: no semantic delta — kept in lockstep
+  with the node's `excess_blinding_factor` (full-unshield) support; the only
+  textual difference is control-flow-equivalent phrasing.
+
+### Node-only modules intentionally NOT ported
+
+`signed_amount.rs` and `unsigned_amount.rs` exist upstream but are node-internal
+amount-arithmetic types that play no part in client proof/commitment generation.
+They are deliberately absent from `crypto-core/`; their appearance here would be
+drift (the `make check-drift` guard flags it).
+
+**Watch item:** every crypto API still takes a plain `u64`. If a future upstream
+normalized-amount design (e.g. 10¹⁶ scaling factors) ever flows into
+commitments, it would dwarf the fork's 2⁴⁰ cap — re-evaluate the cap if that
+lands.
 
 ## Staying in sync
 
 The node moves. The missing `excess_blinding_factor` parameter happened
-precisely because the fork silently fell behind core commits
-`30b4d147` / `f708c8dc` / `e696effd`.
+precisely because the fork silently fell behind core commits `30b4d147` /
+`f708c8dc` / `e696effd`.
 
-Until an automated drift check lands in CI, syncing is a maintainer
-discipline: when hathor-core's crypto changes (today at
-`htr-rs/crates/htr-lib/src/` on the shielded-outputs branch line), diff it
-against `crypto-core/src/`, review the delta beyond the intentional ones
-listed above, port it here in lockstep, and update this file. The long-term
-plan is to upstream the hardening deltas and depend on the node's crate
-directly, eliminating the fork.
+That drift is guarded by **`make check-drift`** (script:
+[`scripts/check-drift.sh`](scripts/check-drift.sh)), a maintainer-run check to
+run before every sync. It is deliberately **local, not a public CI job**: it
+reads hathor-core's non-public experimental shielded-outputs branch, so
+publishing it to CI would require exposing that upstream and giving public CI
+access to it. (A ready-to-enable CI form is kept locally at
+`.github/workflows/core-sync.yml` for if the check ever moves to a private CI.)
+Point it at a local hathor-core checkout with `HATHOR_CORE_DIR=…` (defaults to
+`../hathor-core`). It compares `htr-rs/crates/htr-lib/src/` on the tracked branch
+against `crypto-core/src/` and:
+
+- **hard-fails** if `error.rs` or `types.rs` (the zero-delta files) diverge at
+  all;
+- **surfaces the diff for mandatory review** on the delta-bearing files
+  (`generators.rs`, `balance.rs`, `pedersen.rs`, `rangeproof.rs`,
+  `surjection.rs`, `ecdh.rs`, `lib.rs`) — a plain diff cannot separate the
+  blessed deltas above from new drift, so a human confirms every diff stays
+  within the deltas listed here before merging;
+- **flags** any new upstream module, or a node-only module leaking into the
+  fork.
+
+When it fires: diff `htr-rs/crates/htr-lib/src/` against `crypto-core/src/`,
+review the delta beyond the intentional ones above, port it here in lockstep,
+update this file, and bump `CORE_REF` (and the tracked-tip SHA above) if the
+upstream tip moved. The long-term plan is to upstream the hardening deltas and
+depend on the node's crate directly, eliminating the fork.

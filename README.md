@@ -41,9 +41,12 @@ by a `MobileShieldedProvider`. Consumed by `hathor-wallet-mobile`.
 
 ### `@hathor/ct-crypto-wasm`
 
-wasm-bindgen browser build (verifier-only — no signing, no rewind,
-no RNG). Exports a `BrowserShieldedProvider` factory via the
-`./provider` subpath.
+wasm-bindgen browser build: a full verifier plus auditor rewind. It
+verifies range proofs, surjection proofs, and commitment-sum / balance
+relations, and rewinds shielded outputs to recover their cleartext
+`(value, blindingFactor, tokenUid)` from a scan key. It does not sign,
+create outputs/proofs, or use an RNG — those operations reject. Exports a
+`WasmShieldedProvider` factory via the `./provider` subpath.
 
 ## Workspace
 

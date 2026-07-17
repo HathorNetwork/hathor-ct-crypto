@@ -14,11 +14,12 @@ import {
   IShieldedCryptoProvider,
   ISurjectionDomainEntry,
 } from './types';
+import { ScanMissError } from './errors';
 
 /**
  * Raw blinding entry as seen by a platform binding — `unknown` byte slots
  * because each platform marshals bytes differently (Buffer for Node, Uint8Array
- * for WASM, number[] for the RN bridge on mobile).
+ * for WASM, base64 string for the RN bridge on mobile).
  */
 export interface IRawBlindingEntry {
   value: bigint;
@@ -121,13 +122,18 @@ export abstract class AbstractShieldedProvider implements IShieldedCryptoProvide
     rangeProof: Buffer,
     tokenUid: Buffer
   ): Promise<IRewoundAmountShieldedOutput> {
-    const raw = await this._rawRewindAmountShieldedOutput(
-      this._encodeBytes(privateKey),
-      this._encodeBytes(ephemeralPubkey),
-      this._encodeBytes(commitment),
-      this._encodeBytes(rangeProof),
-      this._encodeBytes(tokenUid)
-    );
+    let raw: IRawRewoundAmountShieldedOutput;
+    try {
+      raw = await this._rawRewindAmountShieldedOutput(
+        this._encodeBytes(privateKey),
+        this._encodeBytes(ephemeralPubkey),
+        this._encodeBytes(commitment),
+        this._encodeBytes(rangeProof),
+        this._encodeBytes(tokenUid)
+      );
+    } catch (err) {
+      this._rethrowRewindError(err);
+    }
     return {
       value: raw.value,
       blindingFactor: this._decodeBytes(raw.blindingFactor),
@@ -141,13 +147,18 @@ export abstract class AbstractShieldedProvider implements IShieldedCryptoProvide
     rangeProof: Buffer,
     assetCommitment: Buffer
   ): Promise<IRewoundFullShieldedOutput> {
-    const raw = await this._rawRewindFullShieldedOutput(
-      this._encodeBytes(privateKey),
-      this._encodeBytes(ephemeralPubkey),
-      this._encodeBytes(commitment),
-      this._encodeBytes(rangeProof),
-      this._encodeBytes(assetCommitment)
-    );
+    let raw: IRawRewoundFullShieldedOutput;
+    try {
+      raw = await this._rawRewindFullShieldedOutput(
+        this._encodeBytes(privateKey),
+        this._encodeBytes(ephemeralPubkey),
+        this._encodeBytes(commitment),
+        this._encodeBytes(rangeProof),
+        this._encodeBytes(assetCommitment)
+      );
+    } catch (err) {
+      this._rethrowRewindError(err);
+    }
     return {
       value: raw.value,
       blindingFactor: this._decodeBytes(raw.blindingFactor),
@@ -301,6 +312,34 @@ export abstract class AbstractShieldedProvider implements IShieldedCryptoProvide
       assetBlindingFactor:
         raw.assetBlindingFactor != null ? this._decodeBytes(raw.assetBlindingFactor) : undefined,
     };
+  }
+
+  /**
+   * Return `true` when `err` (thrown by a `_rawRewind*` call) represents the
+   * output simply **not being addressed to this scan key** — the common,
+   * benign scan-miss case — rather than genuine corruption / malformed input.
+   *
+   * The base cannot tell the two apart from a generic platform error, so it
+   * conservatively returns `false`: unrecognised errors propagate unchanged,
+   * exactly as before. Subclasses that CAN recognise their binding's scan-miss
+   * signal (e.g. a specific error code / message from the native/wasm layer)
+   * override this to opt into `ScanMissError` translation. This is purely
+   * additive — a subclass that does not override keeps today's throw behaviour.
+   */
+  protected _isScanMiss(_err: unknown): boolean {
+    return false;
+  }
+
+  /**
+   * Normalise an error thrown by a `_rawRewind*` call: convert a recognised
+   * scan-miss into a typed {@link ScanMissError} (preserving the original as
+   * `cause`), otherwise re-throw the original untouched. Always throws.
+   */
+  protected _rethrowRewindError(err: unknown): never {
+    if (this._isScanMiss(err)) {
+      throw new ScanMissError(undefined, { cause: err });
+    }
+    throw err;
   }
 
   /**

@@ -19,12 +19,19 @@
  */
 
 let createDefaultShieldedCryptoProvider;
+let ct;
 let providerLoadError;
 try {
   ({ createDefaultShieldedCryptoProvider } = require('../provider'));
+  // Raw NAPI addon — the provider doesn't surface generateEphemeralKeypair, but
+  // the rewind round-trip needs a recipient keypair whose private key we control.
+  ct = require('../index');
 } catch (e) {
   providerLoadError = e;
 }
+
+// Pure-JS dependency (no native load), so this require is always safe.
+const { ScanMissError } = require('@hathor/ct-crypto-provider');
 
 // In CI we set CT_CRYPTO_REQUIRE_NATIVE=1 so a missing/broken addon
 // FAILS the suite instead of silently skipping (which would let the "real
@@ -149,20 +156,176 @@ describeIfProvider('NodeShieldedProvider — round-trip', () => {
     expect(created.commitment.equals(recomputed)).toBe(false);
   });
 
-  it('rewindAmountShieldedOutput recovers the value+bf for the matching recipient', async () => {
-    // For this test we'd need to know the recipient's private key.
-    // Since RECIPIENT_PUBKEY is the secp256k1 generator (no known privkey),
-    // we generate a fresh keypair via the provider's ECDH primitive.
-    const recipientPrivkey = await provider.generateRandomBlindingFactor();
-    // Derive the matching pubkey: pubkey = privkey * G
-    const recipientPubkey = await provider.deriveAssetTag(Buffer.alloc(32, 0));
-    // Note: deriveAssetTag isn't the right primitive to get pubkey from privkey,
-    // so we use a simpler approach: have the addon do the keypair internally
-    // by calling the `create*` form which generates an ephemeral keypair and
-    // returns the ephemeralPubkey — and we use a pubkey we can derive on test.
-    // Skipping the actual rewind verify; the round-trip via open*Commitment
-    // already proves the value/bf are correctly produced.
-    expect(typeof recipientPrivkey).toBe('object');
-    expect(typeof recipientPubkey).toBe('object');
+  it('rewindAmountShieldedOutput round-trips value + blinding factor for the matching recipient', async () => {
+    // RECIPIENT_PUBKEY above is the secp256k1 generator (no known private key),
+    // so mint a real keypair from the addon whose private key we control.
+    const { privateKey, publicKey } = ct.generateEphemeralKeypair();
+    const value = 4242n;
+    const vbf = await provider.generateRandomBlindingFactor();
+
+    const created = await provider.createAmountShieldedOutput(
+      value,
+      publicKey,
+      HTR_TOKEN_UID,
+      vbf
+    );
+
+    const rewound = await provider.rewindAmountShieldedOutput(
+      privateKey,
+      created.ephemeralPubkey,
+      created.commitment,
+      created.rangeProof,
+      HTR_TOKEN_UID
+    );
+
+    // Real round-trip: the recovered value and blinding factor equal the
+    // originals (and the bf the create step reported).
+    expect(rewound.value).toBe(value);
+    expect(Buffer.isBuffer(rewound.blindingFactor)).toBe(true);
+    expect(rewound.blindingFactor.equals(vbf)).toBe(true);
+    expect(rewound.blindingFactor.equals(created.blindingFactor)).toBe(true);
+  });
+
+  it('rewindAmountShieldedOutput throws ScanMissError for a non-matching scan key', async () => {
+    const { publicKey } = ct.generateEphemeralKeypair();
+    const wrong = ct.generateEphemeralKeypair(); // unrelated keypair
+    const vbf = await provider.generateRandomBlindingFactor();
+
+    const created = await provider.createAmountShieldedOutput(
+      1000n,
+      publicKey,
+      HTR_TOKEN_UID,
+      vbf
+    );
+
+    // The wrong private key derives a different ECDH nonce, so the range-proof
+    // rewind fails: a benign scan-miss, surfaced as the typed ScanMissError
+    // (a subclass of Error, with the original native error kept as `cause`).
+    const err = await provider
+      .rewindAmountShieldedOutput(
+        wrong.privateKey,
+        created.ephemeralPubkey,
+        created.commitment,
+        created.rangeProof,
+        HTR_TOKEN_UID
+      )
+      .then(
+        () => null,
+        e => e
+      );
+    expect(err).toBeInstanceOf(ScanMissError);
+    expect(err).toBeInstanceOf(Error);
+    expect(err.cause).toBeDefined();
+  });
+});
+
+describeIfProvider('NodeShieldedProvider — error paths', () => {
+  const provider = createDefaultShieldedCryptoProvider();
+
+  it('createCommitment rejects a wrong-length blinding factor', async () => {
+    const generator = await provider.deriveAssetTag(HTR_TOKEN_UID);
+    await expect(
+      provider.createCommitment(1n, Buffer.alloc(31), generator)
+    ).rejects.toThrow(/32 bytes/);
+  });
+
+  it('createAmountShieldedOutput rejects a malformed recipient pubkey', async () => {
+    const vbf = await provider.generateRandomBlindingFactor();
+    await expect(
+      provider.createAmountShieldedOutput(1n, Buffer.alloc(10), HTR_TOKEN_UID, vbf)
+    ).rejects.toThrow();
+  });
+
+  it('deriveAssetTag rejects a wrong-length token UID', async () => {
+    await expect(provider.deriveAssetTag(Buffer.alloc(31))).rejects.toThrow(/32 bytes/);
+  });
+
+  it('rewindAmountShieldedOutput surfaces malformed input as a non-scan-miss Error', async () => {
+    // A genuinely malformed commitment fails at deserialization, before the
+    // range-proof rewind step, so it must NOT be reclassified as a scan-miss.
+    const { privateKey, publicKey } = ct.generateEphemeralKeypair();
+    const vbf = await provider.generateRandomBlindingFactor();
+    const created = await provider.createAmountShieldedOutput(
+      500n,
+      publicKey,
+      HTR_TOKEN_UID,
+      vbf
+    );
+    const truncatedCommitment = created.commitment.subarray(0, 10);
+
+    const err = await provider
+      .rewindAmountShieldedOutput(
+        privateKey,
+        created.ephemeralPubkey,
+        truncatedCommitment,
+        created.rangeProof,
+        HTR_TOKEN_UID
+      )
+      .then(
+        () => null,
+        e => e
+      );
+    // The addon throws a genuine Error, but it originates in Node's outer realm
+    // (native addons don't use jest's sandboxed globals), so `instanceof Error`
+    // is unreliable here — assert error-hood realm-agnostically instead.
+    expect(Object.prototype.toString.call(err)).toBe('[object Error]');
+    expect(err).not.toBeInstanceOf(ScanMissError);
+    expect(err.message).toMatch(/commitment/);
+  });
+});
+
+describeIfProvider('NodeShieldedProvider — verifier surface', () => {
+  const provider = createDefaultShieldedCryptoProvider();
+
+  it('validateCommitment / validateGenerator accept valid points and reject garbage', async () => {
+    const generator = await provider.deriveAssetTag(HTR_TOKEN_UID);
+    const vbf = await provider.generateRandomBlindingFactor();
+    const commitment = await provider.createCommitment(100n, vbf, generator);
+
+    expect(await provider.validateCommitment(commitment)).toBe(true);
+    expect(await provider.validateGenerator(generator)).toBe(true);
+    // 33 bytes but not a valid curve point.
+    expect(await provider.validateCommitment(Buffer.alloc(33, 0x01))).toBe(false);
+  });
+
+  it('verifyRangeProof accepts a matching proof and rejects a mismatched commitment', async () => {
+    const { publicKey } = ct.generateEphemeralKeypair();
+    const generator = await provider.deriveAssetTag(HTR_TOKEN_UID);
+    const good = await provider.createAmountShieldedOutput(
+      50n,
+      publicKey,
+      HTR_TOKEN_UID,
+      await provider.generateRandomBlindingFactor()
+    );
+    const other = await provider.createAmountShieldedOutput(
+      60n,
+      publicKey,
+      HTR_TOKEN_UID,
+      await provider.generateRandomBlindingFactor()
+    );
+
+    expect(await provider.verifyRangeProof(good.rangeProof, good.commitment, generator)).toBe(true);
+    expect(await provider.verifyRangeProof(good.rangeProof, other.commitment, generator)).toBe(
+      false
+    );
+  });
+
+  it('verifyCommitmentsSum and verifyBalance evaluate the homomorphic sum', async () => {
+    const generator = await provider.deriveAssetTag(HTR_TOKEN_UID);
+    const vbf = await provider.generateRandomBlindingFactor();
+    const commitment = await provider.createCommitment(100n, vbf, generator);
+
+    // Same commitment on both sides sums to zero.
+    expect(await provider.verifyCommitmentsSum([commitment], [commitment])).toBe(true);
+    expect(await provider.verifyCommitmentsSum([commitment], [])).toBe(false);
+
+    // Transparent balance: 100 in == 100 out (same token) balances; 100 vs 99 does not.
+    const token = Buffer.alloc(32, 0x07);
+    expect(
+      await provider.verifyBalance([{ amount: 100n, tokenUid: token }], [], [{ amount: 100n, tokenUid: token }], [])
+    ).toBe(true);
+    expect(
+      await provider.verifyBalance([{ amount: 100n, tokenUid: token }], [], [{ amount: 99n, tokenUid: token }], [])
+    ).toBe(false);
   });
 });

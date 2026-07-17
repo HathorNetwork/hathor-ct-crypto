@@ -305,14 +305,32 @@ pub fn decrypt_shielded_output_uniffi(
     // Node binding uses (hathor_ct_crypto_core::ecdh::rewind_full_shielded_output), which also
     // performs the asset_commitment cross-check for malicious-sender protection.
     if let Some(ref ac) = asset_commitment {
+        // Structural length validation → InvalidInput, mirroring the
+        // AmountShielded path below (and the node/wasm bindings): a genuine
+        // bad-length caller input is a programming error and gets InvalidInput.
+        // Everything the core rewind can fail on afterwards — the output not
+        // being addressed to this scan key (the common scan-miss), a corrupt
+        // proof/commitment, or the asset-commitment cross-check mismatch —
+        // is a crypto/scan failure and maps to CryptoFailed via
+        // `From<HathorCtError>` (the `?` below). The previous code collapsed
+        // ALL of those to InvalidInput, diverging from rewind_amount's mapping
+        // and hiding scan-misses behind a bad-input code.
+        if recipient_privkey.len() != 32 {
+            return Err(CryptoError::InvalidInput { msg: "privkey must be 32 bytes".into() });
+        }
+        if ephemeral_pubkey.len() != 33 {
+            return Err(CryptoError::InvalidInput { msg: "ephemeral_pubkey must be 33 bytes".into() });
+        }
+        if ac.len() != 33 {
+            return Err(CryptoError::InvalidInput { msg: "asset_commitment must be 33 bytes".into() });
+        }
         let result = hathor_ct_crypto_core::ecdh::rewind_full_shielded_output(
             &recipient_privkey,
             &ephemeral_pubkey,
             &commitment,
             &range_proof,
             ac,
-        )
-        .map_err(|e| CryptoError::InvalidInput { msg: e.to_string() })?;
+        )?;
         return Ok(DecryptedShieldedOutput {
             value: result.value,
             blinding_factor: result.blinding_factor.to_vec(),
@@ -506,5 +524,77 @@ mod tests {
         let bf = generate_random_blinding_factor_uniffi();
         assert_eq!(bf.len(), 32);
         assert!(SecretKey::from_slice(&bf).is_ok());
+    }
+
+    // Extract the error from a decrypt result without requiring the Ok variant
+    // (`DecryptedShieldedOutput`, a uniffi::Record) to implement Debug.
+    fn decrypt_err(res: Result<DecryptedShieldedOutput, CryptoError>) -> CryptoError {
+        match res {
+            Ok(_) => panic!("expected an error, got a successful decrypt"),
+            Err(e) => e,
+        }
+    }
+
+    // A genuine bad-length input on the FullShielded decrypt path is
+    // InvalidInput (a programming error the caller must fix), not a crypto
+    // failure. This mirrors the AmountShielded path's explicit length checks.
+    #[test]
+    fn test_decrypt_full_shielded_bad_length_is_invalid_input() {
+        let err = decrypt_err(decrypt_shielded_output_uniffi(
+            vec![0u8; 31], // privkey wrong length
+            vec![2u8; 33], // ephemeral_pubkey (len ok)
+            vec![3u8; 33], // commitment
+            vec![4u8; 100], // range_proof
+            None,
+            Some(vec![6u8; 33]), // asset_commitment present → FullShielded branch
+        ));
+        assert!(matches!(err, CryptoError::InvalidInput { .. }));
+    }
+
+    // A FullShielded output not addressed to the scan key (wrong private key)
+    // must map to CryptoFailed — the SAME mapping the AmountShielded rewind uses
+    // for a scan-miss. The old code force-mapped every core error here to
+    // InvalidInput, which diverged from rewind_amount and hid scan-misses.
+    #[test]
+    fn test_decrypt_full_shielded_scan_miss_is_crypto_failed() {
+        let (sk_owner, pk_owner) = SECP256K1.generate_keypair(&mut rand::thread_rng());
+        let (sk_other, _) = SECP256K1.generate_keypair(&mut rand::thread_rng());
+        let tuid = [9u8; 32];
+        let vbf = generate_random_blinding_factor_uniffi();
+        let abf = generate_random_blinding_factor_uniffi();
+
+        let out = create_shielded_output_with_both_blindings_uniffi(
+            100,
+            pk_owner.serialize().to_vec(),
+            tuid.to_vec(),
+            vbf,
+            abf,
+        )
+        .unwrap();
+
+        // Wrong key → scan-miss → CryptoFailed (all lengths are valid).
+        let err = decrypt_err(decrypt_shielded_output_uniffi(
+            sk_other.secret_bytes().to_vec(),
+            out.ephemeral_pubkey.clone(),
+            out.commitment.clone(),
+            out.range_proof.clone(),
+            None,
+            out.asset_commitment.clone(),
+        ));
+        assert!(matches!(err, CryptoError::CryptoFailed { .. }));
+
+        // Sanity: the correct key still rewinds successfully.
+        let ok = decrypt_shielded_output_uniffi(
+            sk_owner.secret_bytes().to_vec(),
+            out.ephemeral_pubkey,
+            out.commitment,
+            out.range_proof,
+            None,
+            out.asset_commitment,
+        )
+        .unwrap();
+        assert_eq!(ok.value, 100);
+        assert_eq!(ok.output_type, "FullShielded");
+        assert_eq!(ok.token_uid, tuid.to_vec());
     }
 }

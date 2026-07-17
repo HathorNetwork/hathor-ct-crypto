@@ -51,12 +51,25 @@ class HathorCtCryptoModule(reactContext: ReactApplicationContext) :
 
   private fun b64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.NO_WRAP)
 
-  private fun bytes(s: String, name: String): ByteArray =
-    try {
+  // Strict, canonical (RFC 4648, padded) base64: length is a multiple of 4,
+  // only alphabet characters, and correct terminal padding. android.util.Base64
+  // is otherwise lenient — it silently skips whitespace and accepts unpadded
+  // input — whereas Swift's Data(base64Encoded:) is strict. Validating up front
+  // keeps the iOS and Android bridges accepting EXACTLY the same inputs so a
+  // payload that decodes on one platform never silently differs on the other.
+  private val strictBase64 =
+    Regex("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
+
+  private fun bytes(s: String, name: String): ByteArray {
+    if (!strictBase64.matches(s)) {
+      throw IllegalArgumentException("$name is not valid base64")
+    }
+    return try {
       Base64.decode(s, Base64.DEFAULT)
     } catch (e: IllegalArgumentException) {
       throw IllegalArgumentException("$name is not valid base64")
     }
+  }
 
   private fun u64(s: String, name: String): ULong =
     s.toULongOrNull() ?: throw IllegalArgumentException("$name is not a valid u64 decimal string")

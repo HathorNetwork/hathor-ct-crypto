@@ -75,6 +75,16 @@ export interface IOpenedFullShieldedCommitment {
 }
 
 /**
+ * A transparent (cleartext) input or output for balance verification.
+ * `tokenUid` is the raw 32-byte UID (Buffer), matching the value-commitment
+ * generator derivation — NOT the hex form used at the rewind boundary.
+ */
+export interface ITransparentBalanceEntry {
+  amount: bigint;
+  tokenUid: Buffer;
+}
+
+/**
  * Swappable crypto provider for shielded output operations.
  *
  * Function names follow the SHIELDED-OUTPUTS-CLIENT-GUIDE.md specification.
@@ -228,4 +238,58 @@ export interface IShieldedCryptoProvider {
     tokenUid: Buffer,
     assetBlindingFactor: Buffer
   ): Promise<IOpenedFullShieldedCommitment>;
+
+  // ─── OPTIONAL verifier surface ─────────────────────────────────────────────
+  //
+  // These operate purely on public, on-chain data (commitments, generators,
+  // proofs) with no secret-key or RNG dependency, so they are safe to expose in
+  // browser/explorer contexts. They are OPTIONAL: not every platform ships them
+  // (e.g. a signing-only build may omit verification). Consumers MUST feature-
+  // detect before calling — `if (provider.verifyRangeProof) { ... }` — because
+  // an implementation that does not provide a method leaves it `undefined`.
+  //
+  // Providers that do implement these should keep the signatures below so the
+  // surface is uniform across @hathor/ct-crypto-node, -wasm and -mobile.
+
+  /**
+   * Verify a Borromean range proof against its commitment and generator.
+   * Returns `false` for an invalid (including zero-amount) proof.
+   */
+  verifyRangeProof?(proof: Buffer, commitment: Buffer, generator: Buffer): Promise<boolean>;
+
+  /**
+   * Verify a surjection proof: that the codomain asset generator derives from
+   * one of the domain generators.
+   */
+  verifySurjectionProof?(proof: Buffer, codomain: Buffer, domain: Buffer[]): Promise<boolean>;
+
+  /**
+   * Verify the homomorphic balance of a (partial) transaction: that inputs and
+   * outputs — transparent (cleartext) and shielded (value commitments) — sum to
+   * zero. `excessBlindingFactor` supports full-unshield transactions where the
+   * sender reveals `excess = Σr_in − Σr_out`.
+   */
+  verifyBalance?(
+    transparentInputs: ITransparentBalanceEntry[],
+    shieldedInputs: Buffer[],
+    transparentOutputs: ITransparentBalanceEntry[],
+    shieldedOutputs: Buffer[],
+    excessBlindingFactor?: Buffer
+  ): Promise<boolean>;
+
+  /**
+   * Verify that the sum of the `positive` commitments equals the sum of the
+   * `negative` commitments.
+   */
+  verifyCommitmentsSum?(positive: Buffer[], negative: Buffer[]): Promise<boolean>;
+
+  /**
+   * Return `true` if `data` is a valid 33-byte Pedersen commitment (on-curve).
+   */
+  validateCommitment?(data: Buffer): Promise<boolean>;
+
+  /**
+   * Return `true` if `data` is a valid 33-byte generator (on-curve).
+   */
+  validateGenerator?(data: Buffer): Promise<boolean>;
 }

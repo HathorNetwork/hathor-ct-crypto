@@ -668,10 +668,12 @@ pub fn get_zero_tweak() -> Buffer {
 mod tests {
     //! Rust-side tests for the BigInt <-> u64 conversion at the napi boundary.
     //!
-    //! End-to-end BigInt flow through the bindings (create_commitment, rewind_*, etc.)
-    //! is exercised by the JS integration tests in `tests/bigint.test.mjs`, because
-    //! those functions return napi `Buffer`s whose `Drop` impl links against symbols
-    //! only available at runtime inside Node.js.
+    //! End-to-end BigInt flow through the bindings (create_commitment,
+    //! create_amount_shielded_output, etc.) — including the 40-bit range-proof
+    //! cap and lossless marshaling past 2^53 — is exercised by the Jest
+    //! integration tests in `__tests__/bigint.test.js`, because those functions
+    //! return napi `Buffer`s whose `Drop` impl links against symbols only
+    //! available at runtime inside Node.js.
     use super::*;
 
     fn bigint_pos(words: Vec<u64>) -> BigInt {

@@ -13,13 +13,33 @@ What it exposes (JS names):
 - Output scanning/decryption: `deriveEcdhSharedSecret`,
   `rewindAmountShieldedOutput`, `rewindFullShieldedOutput`
 - On-chain data validation: `validateCommitment`, `validateGenerator`,
-  `verifyRangeProof`, `verifySurjectionProof`
+  `verifyRangeProof`, `verifySurjectionProof`, `verifyBalance`,
+  `verifyCommitmentsSum`
+
+The verifier surface is complete: everything the node binding can *verify* on
+public, on-chain data (proofs, commitments, the homomorphic balance equation)
+is available here too, so the explorer can independently validate third-party
+shielded outputs — not just recompute openings it already knows.
 
 What it deliberately does **not** expose: output *creation* (range-proof and
 surjection-proof construction), blinding-factor RNG, and balancing-factor
 computation — signing flows belong to `@hathor/ct-crypto-node` (or
 `@hathor/ct-crypto-mobile` on mobile). The `./provider` subpath ships a
 `WasmShieldedProvider` whose signing methods throw accordingly.
+
+## Provider (`./provider`)
+
+`WasmShieldedProvider extends AbstractShieldedProvider` (from
+`@hathor/ct-crypto-provider`). Beyond the verifier-only base contract it
+implements the full OPTIONAL verifier surface — `verifyRangeProof`,
+`verifySurjectionProof`, `verifyBalance`, `verifyCommitmentsSum`,
+`validateCommitment`, `validateGenerator`.
+
+Errors are real `Error` instances (matching the node binding), so
+`err instanceof Error` / `err.message` work uniformly across providers. A
+rewind against an output not addressed to the scan key surfaces as the
+package's exported `ScanMissError` — catch it with `instanceof` to skip foreign
+outputs while scanning, and let any other error propagate as a genuine failure.
 
 ## Build
 
@@ -48,7 +68,20 @@ as part of the repo's release flow (all packages release in lockstep on a
 ```sh
 cargo test                                    # native unit tests
 nix develop --command wasm-pack test --node   # wasm bindings (optional)
+npm test                                       # provider marshaling (stubbed wasm)
+npm run test:real                              # real crypto against the built pkg/
 ```
+
+`npm test` runs the `WasmShieldedProvider` unit tests against a stub
+(`__tests__/wasm-stub.js`) — fast, no build required, verifies marshaling.
+
+`npm run test:real` (`__tests__/real/*.realtest.mjs`) loads the **actual built
+`pkg/`** and exercises real cryptography — `createCommitment`, `verifyBalance`,
+`verifyCommitmentsSum`, and a `verifyRangeProof` + rewind round-trip (the proof
+is minted by the sibling `@hathor/ct-crypto-node` binding, then verified and
+rewound by wasm). It runs as ESM (`--experimental-vm-modules`) and **skips with
+a clear message when `pkg/` is absent** rather than silently passing on the
+stub, so CI's `build-wasm` job runs it after building the artifact.
 
 ## Layout
 

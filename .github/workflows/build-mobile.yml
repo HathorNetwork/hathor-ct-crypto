@@ -7,6 +7,13 @@ on:
   pull_request:
     branches: [master]
 
+# Least privilege. Builds the iOS XCFramework + Android jniLibs and uploads
+# them as CI artifacts; npm publish is done by a maintainer from the artifact
+# (see RELEASING.md), not here. Artifact upload/download use the Actions
+# runtime token, so read-only GITHUB_TOKEN is sufficient throughout.
+permissions:
+  contents: read
+
 jobs:
   # iOS: static libs for device + simulator, assembled into an XCFramework
   # whose Headers carry the UniFFI FFI header + modulemap so the generated
@@ -14,8 +21,8 @@ jobs:
   ios:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
 
@@ -51,7 +58,7 @@ jobs:
           zip -ry HathorCtCrypto.xcframework.zip HathorCtCrypto.xcframework
 
       - name: Upload XCFramework
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mobile-ios-xcframework
           path: HathorCtCrypto.xcframework.zip
@@ -60,8 +67,8 @@ jobs:
   android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
 
@@ -84,7 +91,7 @@ jobs:
             build -p hathor-ct-crypto-mobile --locked --release
 
       - name: Upload jniLibs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mobile-android-jnilibs
           path: jniLibs/
@@ -97,15 +104,15 @@ jobs:
     if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Download iOS artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: mobile-ios-xcframework
           path: ios-artifact
       - name: Download Android artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: mobile-android-jnilibs
           path: android-artifact
@@ -149,7 +156,16 @@ jobs:
           cat SHA256SUMS
 
       - name: Upload npm package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: npm-package-mobile
           path: npm-package-mobile/
+
+      # Out-of-band checksums — see the matching step in build-node.yml.
+      # package.json ships SHA256SUMS inside the tarball, so also upload it as a
+      # standalone artifact the verifier can diff against the in-tarball copy.
+      - name: Upload SHA256SUMS (out-of-band)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mobile-sha256sums
+          path: npm-package-mobile/SHA256SUMS

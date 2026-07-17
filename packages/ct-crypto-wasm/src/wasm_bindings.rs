@@ -30,31 +30,39 @@ use wasm_bindgen::prelude::*;
 
 use hathor_ct_crypto_core::error::HathorCtError;
 
+/// Build a thrown value that is a real JS `Error` instance (not a bare string),
+/// so the shape matches what the NAPI binding throws (`napi::Error` surfaces as
+/// an `Error`). Consumers can then rely on `err instanceof Error` / `err.message`
+/// uniformly across the node and wasm providers.
+fn js_err(msg: &str) -> JsValue {
+    JsValue::from(js_sys::Error::new(msg))
+}
+
 fn to_js_err(e: HathorCtError) -> JsValue {
-    JsValue::from_str(&e.to_string())
+    js_err(&e.to_string())
 }
 
 fn parse_tweak(bytes: &[u8]) -> Result<Tweak, JsValue> {
     if bytes.len() != 32 {
-        return Err(JsValue::from_str("tweak must be 32 bytes"));
+        return Err(js_err("tweak must be 32 bytes"));
     }
-    Tweak::from_slice(bytes).map_err(|e| JsValue::from_str(&e.to_string()))
+    Tweak::from_slice(bytes).map_err(|e| js_err(&e.to_string()))
 }
 
 fn parse_generator(bytes: &[u8]) -> Result<Generator, JsValue> {
     if bytes.len() != 33 {
-        return Err(JsValue::from_str("generator must be 33 bytes"));
+        return Err(js_err("generator must be 33 bytes"));
     }
     hathor_ct_crypto_core::generators::deserialize_generator(bytes).map_err(to_js_err)
 }
 
 fn parse_token_uid(bytes: &[u8]) -> Result<[u8; 32], JsValue> {
     if bytes.len() != 32 {
-        return Err(JsValue::from_str("token_uid must be 32 bytes"));
+        return Err(js_err("token_uid must be 32 bytes"));
     }
     bytes
         .try_into()
-        .map_err(|_| JsValue::from_str("token_uid must be exactly 32 bytes"))
+        .map_err(|_| js_err("token_uid must be exactly 32 bytes"))
 }
 
 /// Convert a JS `BigInt` amount to `u64`, rejecting negative and
@@ -69,7 +77,7 @@ fn bigint_to_u64(value: &js_sys::BigInt) -> Result<u64, JsValue> {
     // try_from returns Err for values outside i64/u64 depending on sign; use the
     // u64 conversion and reject anything that doesn't fit exactly.
     u64::try_from(value.clone())
-        .map_err(|_| JsValue::from_str("amount must be a non-negative integer < 2^64"))
+        .map_err(|_| js_err("amount must be a non-negative integer < 2^64"))
 }
 
 /// Derive the deterministic asset-tag generator (33-byte compressed point) for a token UID.
@@ -105,11 +113,11 @@ pub fn derive_tag(token_uid: &[u8]) -> Result<Vec<u8>, JsValue> {
 #[wasm_bindgen(js_name = createAssetCommitment)]
 pub fn create_asset_commitment(tag_bytes: &[u8], r_asset: &[u8]) -> Result<Vec<u8>, JsValue> {
     if tag_bytes.len() != 32 {
-        return Err(JsValue::from_str("tag must be 32 bytes"));
+        return Err(js_err("tag must be 32 bytes"));
     }
     let tag_arr: [u8; 32] = tag_bytes
         .try_into()
-        .map_err(|_| JsValue::from_str("tag must be exactly 32 bytes"))?;
+        .map_err(|_| js_err("tag must be exactly 32 bytes"))?;
     let tag = secp256k1_zkp::Tag::from(tag_arr);
     let tweak = parse_tweak(r_asset)?;
     let commitment =
@@ -328,12 +336,134 @@ pub fn validate_generator(data: &[u8]) -> bool {
 
 /// Verify a range proof against a commitment + generator. Returns `true` iff the
 /// committed value is in the valid range `[1, 1 + 2^40)`.
+///
+/// Zero-amount proofs are rejected (`false`), matching the NAPI
+/// `verify_range_proof` so the two providers agree on the same proofs.
 #[wasm_bindgen(js_name = verifyRangeProof)]
 pub fn verify_range_proof(proof: &[u8], commitment: &[u8], generator: &[u8]) -> Result<bool, JsValue> {
     let p = hathor_ct_crypto_core::rangeproof::deserialize_range_proof(proof).map_err(to_js_err)?;
     let c = hathor_ct_crypto_core::pedersen::deserialize_commitment(commitment).map_err(to_js_err)?;
     let gen = parse_generator(generator)?;
-    Ok(hathor_ct_crypto_core::rangeproof::verify_range_proof(&p, &c, &gen).is_ok())
+    match hathor_ct_crypto_core::rangeproof::verify_range_proof(&p, &c, &gen) {
+        Ok(range) => {
+            if range.start < 1 {
+                return Ok(false); // Reject zero-amount proofs
+            }
+            Ok(true)
+        }
+        Err(_) => Ok(false),
+    }
+}
+
+/// Verify that the sum of the `positive` commitments equals the sum of the
+/// `negative` commitments. Mirrors the NAPI `verify_commitments_sum`.
+#[wasm_bindgen(js_name = verifyCommitmentsSum)]
+pub fn verify_commitments_sum(
+    positive: Vec<js_sys::Uint8Array>,
+    negative: Vec<js_sys::Uint8Array>,
+) -> Result<bool, JsValue> {
+    let pos = positive
+        .iter()
+        .map(|b| hathor_ct_crypto_core::pedersen::deserialize_commitment(&b.to_vec()).map_err(to_js_err))
+        .collect::<Result<Vec<_>, JsValue>>()?;
+    let neg = negative
+        .iter()
+        .map(|b| hathor_ct_crypto_core::pedersen::deserialize_commitment(&b.to_vec()).map_err(to_js_err))
+        .collect::<Result<Vec<_>, JsValue>>()?;
+    Ok(hathor_ct_crypto_core::pedersen::verify_commitments_sum(&pos, &neg))
+}
+
+/// Assemble the `BalanceEntry` list from a set of transparent entries (passed as
+/// parallel `amounts[i]` / `token_uids[i]` arrays) plus shielded value
+/// commitments. wasm-bindgen has no ergonomic array-of-structs marshaling, so
+/// `WasmShieldedProvider.verifyBalance` splits the `ITransparentBalanceEntry[]`
+/// contract shape into these parallel arrays before calling in.
+fn build_balance_entries(
+    amounts: &[js_sys::BigInt],
+    token_uids: &[js_sys::Uint8Array],
+    shielded: &[js_sys::Uint8Array],
+) -> Result<Vec<hathor_ct_crypto_core::balance::BalanceEntry>, JsValue> {
+    if amounts.len() != token_uids.len() {
+        return Err(js_err(
+            "transparent amounts and token_uids must have equal length",
+        ));
+    }
+    let mut entries = Vec::with_capacity(amounts.len() + shielded.len());
+    for (amount, uid) in amounts.iter().zip(token_uids.iter()) {
+        let token_uid = parse_token_uid(&uid.to_vec())?;
+        entries.push(hathor_ct_crypto_core::balance::BalanceEntry::Transparent {
+            amount: bigint_to_u64(amount)?,
+            token_uid,
+        });
+    }
+    for cb in shielded {
+        let c = hathor_ct_crypto_core::pedersen::deserialize_commitment(&cb.to_vec()).map_err(to_js_err)?;
+        entries.push(hathor_ct_crypto_core::balance::BalanceEntry::Shielded {
+            value_commitment: c,
+        });
+    }
+    Ok(entries)
+}
+
+/// Verify the homomorphic balance equation. Mirrors the NAPI `verify_balance`.
+///
+/// Transparent entries arrive as parallel arrays (`transparent_*_amounts[i]`
+/// pairs with `transparent_*_token_uids[i]`). `excess_blinding_factor`
+/// (optional, 32 bytes) supports full-unshield transactions
+/// (`UnshieldBalanceHeader`, header id 0x13): shielded inputs with no shielded
+/// outputs, where the sender reveals `excess = sum(r_in) − sum(r_out)`. Matches
+/// hathor-core's semantics so client-side verification covers the same
+/// transaction classes the node accepts.
+#[wasm_bindgen(js_name = verifyBalance)]
+#[allow(clippy::too_many_arguments)]
+pub fn verify_balance(
+    transparent_input_amounts: Vec<js_sys::BigInt>,
+    transparent_input_token_uids: Vec<js_sys::Uint8Array>,
+    shielded_inputs: Vec<js_sys::Uint8Array>,
+    transparent_output_amounts: Vec<js_sys::BigInt>,
+    transparent_output_token_uids: Vec<js_sys::Uint8Array>,
+    shielded_outputs: Vec<js_sys::Uint8Array>,
+    excess_blinding_factor: Option<js_sys::Uint8Array>,
+) -> Result<bool, JsValue> {
+    let inputs = build_balance_entries(
+        &transparent_input_amounts,
+        &transparent_input_token_uids,
+        &shielded_inputs,
+    )?;
+    let outputs = build_balance_entries(
+        &transparent_output_amounts,
+        &transparent_output_token_uids,
+        &shielded_outputs,
+    )?;
+
+    // Structural invariants on the excess blinding factor, mirroring the NAPI
+    // binding (which re-checks them at the FFI boundary): excess and shielded
+    // outputs cannot coexist, and excess requires at least one shielded input
+    // (otherwise there's no sum(r_in)·G term to cancel and the scalar is
+    // meaningless).
+    let excess = match excess_blinding_factor {
+        Some(buf) => {
+            if !shielded_outputs.is_empty() {
+                return Err(js_err(
+                    "excess_blinding_factor must be undefined when shielded_outputs is non-empty",
+                ));
+            }
+            if shielded_inputs.is_empty() {
+                return Err(js_err(
+                    "excess_blinding_factor requires at least one shielded input",
+                ));
+            }
+            Some(parse_tweak(&buf.to_vec())?)
+        }
+        None => None,
+    };
+
+    hathor_ct_crypto_core::balance::verify_balance(&inputs, &outputs, excess)
+        .map(|()| true)
+        .or_else(|e| match e {
+            HathorCtError::BalanceError(_) => Ok(false),
+            other => Err(to_js_err(other)),
+        })
 }
 
 /// Verify a surjection proof that the output asset (`codomain`, 33-byte

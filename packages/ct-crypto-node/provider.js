@@ -125,6 +125,72 @@ class NodeShieldedProvider extends AbstractShieldedProvider {
   async _rawDeriveEcdhSharedSecret(privateKey, peerPubkey) {
     return ct.deriveEcdhSharedSecret(privateKey, peerPubkey);
   }
+
+  // ─── scan-miss recognition ───────────────────────────────────────────────
+
+  /**
+   * Recognise the NAPI binding's benign scan-miss condition. When an output is
+   * not addressed to the scan key being tried, the ECDH-derived nonce is wrong
+   * and the range-proof rewind fails inside crypto-core with a message like
+   * `"range proof error: range proof rewind failed: ..."`. That specific
+   * "rewind failed" step is the scan-miss signal, so the base class re-raises it
+   * as the typed `ScanMissError` (see AbstractShieldedProvider._rethrowRewindError).
+   *
+   * Malformed input (wrong byte length, undeserializable commitment/proof, the
+   * FullShielded asset-commitment cross-check) fails with a different message
+   * that never contains "rewind failed", so those correctly propagate unchanged
+   * as the original error rather than a scan-miss.
+   */
+  _isScanMiss(err) {
+    const message = err && typeof err.message === 'string' ? err.message : '';
+    return message.includes('rewind failed');
+  }
+
+  // ─── optional verifier surface ───────────────────────────────────────────
+  //
+  // The Node addon backs every verifier/validator NAPI export, so this concrete
+  // provider implements all six OPTIONAL members of IShieldedCryptoProvider.
+  // NAPI calls are synchronous; each is wrapped in `async` so callers see a
+  // uniform Promise-returning surface (matching the rest of the provider).
+  // Byte marshaling is identity on Node (Buffer in / Buffer out), so the raw
+  // NAPI functions are called directly.
+
+  async verifyRangeProof(proof, commitment, generator) {
+    return ct.verifyRangeProof(proof, commitment, generator);
+  }
+
+  async verifySurjectionProof(proof, codomain, domain) {
+    return ct.verifySurjectionProof(proof, codomain, domain);
+  }
+
+  async verifyBalance(
+    transparentInputs,
+    shieldedInputs,
+    transparentOutputs,
+    shieldedOutputs,
+    excessBlindingFactor
+  ) {
+    return ct.verifyBalance(
+      transparentInputs,
+      shieldedInputs,
+      transparentOutputs,
+      shieldedOutputs,
+      // NAPI's `excess_blinding_factor` is Option<Buffer>; undefined maps to None.
+      excessBlindingFactor
+    );
+  }
+
+  async verifyCommitmentsSum(positive, negative) {
+    return ct.verifyCommitmentsSum(positive, negative);
+  }
+
+  async validateCommitment(data) {
+    return ct.validateCommitment(data);
+  }
+
+  async validateGenerator(data) {
+    return ct.validateGenerator(data);
+  }
 }
 
 /**

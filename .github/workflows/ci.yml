@@ -5,13 +5,19 @@ on:
     branches: [master]
   pull_request:
 
+# Least privilege: every job here only reads the repo and runs tests — none
+# publishes, comments, or writes releases. Grant read-only by default; add a
+# narrower job-level grant if a future job needs more.
+permissions:
+  contents: read
+
 jobs:
   rust:
     name: cargo test (workspace + bindings)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
       # Exercise the binding crates, not just crypto-core. The mobile (UniFFI)
       # crate is a plain workspace member, so it is built and tested here too.
       - name: cargo check (workspace, NAPI feature)
@@ -23,8 +29,8 @@ jobs:
     name: mobile bindings drift check (Swift + Kotlin)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
       # Regenerate the Swift and Kotlin bindings from the current Rust surface
       # and fail if the checked-in copies have drifted. Stale committed bindings
       # fatalError on the UniFFI checksum handshake at the first call on iOS —
@@ -61,13 +67,13 @@ jobs:
     name: dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: cargo audit
         run: cargo audit
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       - name: npm audit (prod deps)
@@ -77,9 +83,9 @@ jobs:
     name: npm test (workspaces, real crypto)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       # Build the real native addon and run the JS suites against it (not

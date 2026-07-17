@@ -20,6 +20,7 @@
     "provider.js",
     "provider.d.ts",
     "prebuilds/",
+    "README.md",
     "LICENSE",
     "SHA256SUMS"
   ],

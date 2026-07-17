@@ -14,6 +14,7 @@ export type {
   IRewoundFullShieldedOutput,
   IShieldedCryptoProvider,
   ISurjectionDomainEntry,
+  ITransparentBalanceEntry,
 } from './types';
 
 export { AbstractShieldedProvider } from './abstract';
@@ -24,3 +25,6 @@ export type {
   IRawRewoundFullShieldedOutput,
   IRawSurjectionDomainEntry,
 } from './abstract';
+
+export { ScanMissError } from './errors';
+export { ZERO_TWEAK } from './constants';

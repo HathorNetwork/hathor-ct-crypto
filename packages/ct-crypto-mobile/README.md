@@ -38,19 +38,57 @@ wallet.setShieldedCryptoProvider(createMobileShieldedCryptoProvider());
 Same `IShieldedCryptoProvider` contract as the node and wasm providers — see
 `@hathor/ct-crypto-provider` for the interface documentation.
 
+This provider is **prover + rewind oriented**. It backs output creation,
+rewind/decrypt, tag/commitment derivation, surjection proofs and the balancing
+factor, but **not** the OPTIONAL verifier surface (`verifyRangeProof`,
+`verifySurjectionProof`, `verifyBalance`, `verifyCommitmentsSum`,
+`validateCommitment`, `validateGenerator`) — the UniFFI layer exposes no
+verification exports, so those methods are left `undefined` per the optional
+contract. Feature-detect before calling
+(`if (provider.verifyRangeProof) { ... }`), or use `@hathor/ct-crypto-node` /
+`@hathor/ct-crypto-wasm` for verification.
+
 ## Bridge marshaling contract
 
 The RN bridge carries neither raw bytes nor BigInt, so between JS and native:
 
-- **bytes** cross as **base64 strings**;
+- **bytes** cross as **base64 strings** — strict, canonical (RFC 4648, padded)
+  base64. Both native decoders reject whitespace, non-alphabet characters and
+  unpadded input, so iOS and Android accept exactly the same inputs
+  (`Data(base64Encoded:)` on Swift; a strict regex before `Base64.decode` on
+  Android, whose `android.util.Base64` is otherwise lenient);
 - **u64 values** cross as **decimal strings** (amounts can exceed 2^53, where
   JS `Number` silently loses precision);
 - records cross as objects with the provider's camelCase keys;
-- native errors reject with code `InvalidInput` or `CryptoFailed`.
+- native errors reject with code `InvalidInput` (malformed / bad-length caller
+  input) or `CryptoFailed` (the operation itself failed).
 
 `js/index.js` and the two bridge modules (`ios/HathorCtCryptoModule.swift`,
 `android/.../HathorCtCryptoModule.kt`) are the two ends of this contract —
 change them together.
+
+### Scan-miss handling on rewind
+
+A `rewind*` call that rejects with code `CryptoFailed` — the output is not
+addressed to this scan key (the common case while walking the chain) or its
+proof/commitment did not open — is translated into the provider's
+`ScanMissError` (the native error is preserved as `.cause`). Chain scanners
+catch it to skip foreign outputs without brittle message-matching:
+
+```js
+import { ScanMissError } from '@hathor/ct-crypto-provider';
+
+try {
+  const rewound = await provider.rewindAmountShieldedOutput(/* … */);
+  // addressed to us
+} catch (err) {
+  if (err instanceof ScanMissError) continue; // foreign / not ours — skip
+  throw err;                                   // genuine failure
+}
+```
+
+An `InvalidInput` rejection (a programming error) is **not** a scan-miss and
+propagates unchanged.
 
 ## Regenerating the FFI bindings
 
