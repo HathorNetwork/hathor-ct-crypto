@@ -346,8 +346,16 @@ pub fn verify_range_proof(proof: &[u8], commitment: &[u8], generator: &[u8]) -> 
     let gen = parse_generator(generator)?;
     match hathor_ct_crypto_core::rangeproof::verify_range_proof(&p, &c, &gen) {
         Ok(range) => {
-            if range.start < 1 {
-                return Ok(false); // Reject zero-amount proofs
+            // Defense-in-depth upper-bound guard, kept in lockstep with the NAPI
+            // wrapper (review finding M1): core verify only enforces min_value >= 1,
+            // not the upper edge of the documented [1, 1 + 2^40) invariant, so a
+            // hostile prover's wider-min_bits proof would otherwise verify. Honest
+            // proofs cap at MAX_PROVABLE_AMOUNT, so legitimate proofs always pass.
+            // Intentionally stricter than crypto-core until the check lands upstream.
+            if range.start < 1
+                || range.end > hathor_ct_crypto_core::rangeproof::MAX_PROVABLE_AMOUNT + 1
+            {
+                return Ok(false);
             }
             Ok(true)
         }

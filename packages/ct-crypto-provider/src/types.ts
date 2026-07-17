@@ -87,11 +87,13 @@ export interface ITransparentBalanceEntry {
 /**
  * Swappable crypto provider for shielded output operations.
  *
- * Function names follow the SHIELDED-OUTPUTS-CLIENT-GUIDE.md specification.
+ * Method names and semantics mirror the shielded-outputs crypto surface in
+ * hathor-core (see this package's README and UPSTREAM.md for the fork anchor).
  *
  * Implementations:
  *   - Node.js: @hathor/ct-crypto-node (NAPI native addon)
- *   - Browser: @hathor/ct-crypto-wasm (wasm-bindgen, verifier-only)
+ *   - Browser: @hathor/ct-crypto-wasm (wasm-bindgen; verifier + auditor rewind,
+ *              no signing/output-creation/RNG)
  *   - Mobile:  hathor-wallet-mobile/src/shieldedCryptoProvider.js (UniFFI via RN bridge)
  *
  * Every method returns `Promise<T>`. Sync underlying calls (NAPI is sync,
@@ -107,8 +109,9 @@ export interface ITransparentBalanceEntry {
 export interface IShieldedCryptoProvider {
   /**
    * Generate a random 32-byte blinding factor (valid secp256k1 scalar).
-   * MUST use the Rust crypto RNG — never JS crypto.randomBytes (see the
-   * SHIELDED-OUTPUTS-CLIENT-GUIDE.md "RNG" section for why).
+   * MUST use the Rust crypto RNG — never JS crypto.randomBytes (the blinding
+   * factor must be a uniformly random scalar in the secp256k1 field; the native
+   * generator rejection-samples to guarantee that).
    */
   generateRandomBlindingFactor(): Promise<Buffer>;
 
@@ -151,7 +154,9 @@ export interface IShieldedCryptoProvider {
    * Rewind a FullShielded output to recover value, blinding factor, token UID,
    * and asset blinding factor. Does NOT take tokenUid — it's recovered from
    * the proof message and cross-checked against the on-chain asset commitment
-   * by the caller (SHIELDED-OUTPUTS-CLIENT-GUIDE.md "FullShielded cross-check").
+   * inside the binding (the recomputed asset commitment from the rewound
+   * tokenUid + assetBlindingFactor must match the output's, preventing a
+   * malicious sender from lying about the token).
    */
   rewindFullShieldedOutput(
     privateKey: Buffer,

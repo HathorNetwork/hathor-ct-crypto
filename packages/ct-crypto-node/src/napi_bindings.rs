@@ -174,8 +174,22 @@ pub fn verify_range_proof(
     let gen = parse_generator(generator.as_ref())?;
     match hathor_ct_crypto_core::rangeproof::verify_range_proof(&p, &c, &gen) {
         Ok(range) => {
-            if range.start < 1 {
-                return Ok(false); // Reject zero-amount proofs
+            // Core verify enforces the lower bound (min_value >= 1) but not the
+            // upper edge of the documented [1, 1 + 2^40) invariant. A hostile
+            // prover can craft a proof with a wider min_bits whose proven
+            // range.end exceeds the 40-bit ceiling and still verifies. Reject it
+            // here as defense-in-depth. Honest proofs (create_range_proof caps at
+            // MAX_PROVABLE_AMOUNT) always have range.end <= MAX_PROVABLE_AMOUNT + 1,
+            // so this never rejects a legitimate proof.
+            //
+            // NOTE: this is a client-side wrapper guard ahead of the upstream
+            // fix (review finding M1) — intentionally STRICTER than crypto-core
+            // until the same check lands in hathor-core's rangeproof.rs and syncs
+            // down. Kept in lockstep with the wasm wrapper.
+            if range.start < 1
+                || range.end > hathor_ct_crypto_core::rangeproof::MAX_PROVABLE_AMOUNT + 1
+            {
+                return Ok(false);
             }
             Ok(true)
         }

@@ -100,6 +100,13 @@ jobs:
       - name: Run jest suite (wasm provider contract)
         run: npm test --workspace=@hathor/ct-crypto-wasm
 
+      # Exercise the REAL createCommitment(bigint) -> u64 boundary against the
+      # freshly-built pkg/ (review finding L12). The default jest suite runs
+      # against the wasm-stub, which takes a JS bigint and never crosses the
+      # real u64 ABI; test:real (jest.real.config.cjs) loads the actual wasm.
+      - name: Run real-crypto wasm test (BigInt->u64 boundary)
+        run: npm run test:real --workspace=@hathor/ct-crypto-wasm
+
       # Provenance: keep the CI-built pkg for inspection on master/tags. Release
       # publishing still rebuilds the wasm locally (see release-publish.sh).
       - name: Upload wasm pkg artifact

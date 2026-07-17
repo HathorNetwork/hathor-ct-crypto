@@ -25,8 +25,8 @@
     "SHA256SUMS"
   ],
   "scripts": {
-    "build": "cargo build --features napi --release",
-    "build:debug": "cargo build --features napi",
+    "build": "cargo build --features napi --release && node scripts/copy-prebuild.js",
+    "build:debug": "cargo build --features napi && node scripts/copy-prebuild.js",
     "test": "jest"
   },
   "dependencies": {
@@ -46,7 +46,7 @@
     "hathor",
     "confidential-transactions",
     "pedersen",
-    "bulletproofs",
+    "range-proofs",
     "secp256k1",
     "napi"
   ],

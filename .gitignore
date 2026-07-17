@@ -39,3 +39,7 @@ commit-*.sh
 release-*.sh
 publish-*.sh
 push-*.sh
+
+# Jest coverage output
+coverage/
+**/coverage/

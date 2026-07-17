@@ -110,3 +110,10 @@ jobs:
         env:
           CT_CRYPTO_REQUIRE_NATIVE: '1'
         run: npm test --if-present
+      # Enforce the provider.js coverage floor (review finding L11): the
+      # real-crypto node suite otherwise had no threshold. Native addon is
+      # already built + staged above, so this runs against real crypto.
+      - name: node coverage floor
+        env:
+          CT_CRYPTO_REQUIRE_NATIVE: '1'
+        run: npm test --workspace=@hathor/ct-crypto-node -- --coverage
