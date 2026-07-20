@@ -185,6 +185,17 @@ describe('bridge glue — base64 byte marshaling', () => {
     expect(() => provider._decodeBytes(12345)).toThrow(/base64/);
     expect(() => provider._decodeBytes(Buffer.alloc(4))).toThrow(/base64/);
   });
+
+  // L-7: a malformed native-side string must fail loudly, not silently decode
+  // to the wrong bytes (Buffer.from(_, 'base64') drops invalid chars / truncates).
+  it('rejects malformed / non-canonical base64 rather than silently corrupting', () => {
+    expect(() => provider._decodeBytes('not valid base64!!')).toThrow(/base64/); // '!' not in alphabet
+    expect(() => provider._decodeBytes('AAAA=')).toThrow(/base64/);              // bad length (5)
+    expect(() => provider._decodeBytes('AB=A')).toThrow(/base64/);               // '=' mid-string
+    expect(() => provider._decodeBytes('AAA')).toThrow(/base64/);                // unpadded (length 3)
+    // Sanity: a canonical string still decodes.
+    expect(provider._decodeBytes('AAAA')).toEqual(Buffer.from([0, 0, 0]));
+  });
 });
 
 describe('bridge glue — rewind error → ScanMissError translation', () => {

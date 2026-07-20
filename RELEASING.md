@@ -32,15 +32,23 @@ Pushing the tag triggers the CI builds:
    `packages/ct-crypto-provider`).
 3. Build the wasm package locally (`scripts/build-wasm.sh` inside the nix dev
    shell) — it stamps the version from the package manifest into `pkg/`.
-4. `npm publish --tag latest --access public`, in order: provider → node
+4. `npm publish --tag shielded --access public`, in order: provider → node
    (from the artifact) → mobile (from the artifact) → wasm (from `pkg/`).
    The provider goes first so the other three packages' dependency pin
    resolves immediately.
 
+   **Use the `shielded` dist-tag, NOT `latest`, while these are `-shielded`
+   prereleases** (review finding M-6): publishing a prerelease to `latest`
+   makes a plain `npm install @hathor/ct-crypto-*` resolve to the experimental
+   build by default. Consumers opt in with `npm install @hathor/ct-crypto-node@shielded`.
+   Only move to `--tag latest` once a stable (non-prerelease) version ships.
+
 Never `npm publish` node or mobile from the repo checkout: the native
 binaries are gitignored, npm silently skips missing `files` entries, and the
-resulting tarball would install everywhere and fail at the first native call
-(the mobile package's `prepublishOnly` guard refuses for this reason).
+resulting tarball would install everywhere and fail at the first native call.
+Both native packages' `prepublishOnly` guards refuse for this reason (node
+asserts all platform prebuilds are present; mobile asserts the xcframework +
+jniLibs).
 
 Maintainers typically drive both phases with a local helper script (kept out
 of the repo, like the commit helpers — see `.gitignore`); the steps above are

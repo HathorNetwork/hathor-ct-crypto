@@ -16,7 +16,8 @@ import React
 ///   - bytes cross the bridge as base64 strings
 ///   - u64 values cross as decimal strings (they can exceed 2^53)
 ///   - records cross as dictionaries with the provider's camelCase keys
-///   - errors reject with code "InvalidInput" or "CryptoFailed"
+///   - errors reject with code "InvalidInput", "CryptoFailed", or "Internal"
+///     (Internal = environment/linkage failure, never a benign scan-miss)
 @objc(HathorCtCrypto)
 class HathorCtCrypto: NSObject {
   @objc static func requiresMainQueueSetup() -> Bool { false }
@@ -54,7 +55,12 @@ class HathorCtCrypto: NSObject {
     case BridgeError.badInput(let msg):
       reject("InvalidInput", msg, error)
     default:
-      reject("CryptoFailed", String(describing: error), error)
+      // Any OTHER error (missing/stale native library, a uniffi panic, etc.) is
+      // an environment/internal failure, NOT a crypto failure. It MUST NOT reuse
+      // "CryptoFailed": the JS layer's _isScanMiss() treats "CryptoFailed" as a
+      // benign "not addressed to me" scan-miss, so mapping a linkage failure
+      // there would silently swallow it on every output during a chain scan.
+      reject("Internal", String(describing: error), error)
     }
   }
 

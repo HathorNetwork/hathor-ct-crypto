@@ -255,10 +255,21 @@ export interface IShieldedCryptoProvider {
   //
   // Providers that do implement these should keep the signatures below so the
   // surface is uniform across @hathor/ct-crypto-node, -wasm and -mobile.
+  //
+  // ERROR CONTRACT (review finding L-1): a verify* method resolves to `false`
+  // only for a STRUCTURALLY VALID input that fails the cryptographic check. If
+  // the input is malformed — wrong-length or unparseable proof / commitment /
+  // generator bytes — it REJECTS (throws) rather than resolving `false`. So a
+  // scan/verify loop written as `if (!(await provider.verifyRangeProof(...)))`
+  // must wrap the call in try/catch; a single garbage proof in a block would
+  // otherwise throw an unhandled rejection. Fail-closed either way (never a
+  // false `true`), but the two failure modes are distinct.
 
   /**
    * Verify a Borromean range proof against its commitment and generator.
-   * Returns `false` for an invalid (including zero-amount) proof.
+   * Resolves `false` for a structurally-valid but invalid (including
+   * zero-amount) proof; REJECTS on malformed/unparseable input (see the error
+   * contract above).
    */
   verifyRangeProof?(proof: Buffer, commitment: Buffer, generator: Buffer): Promise<boolean>;
 

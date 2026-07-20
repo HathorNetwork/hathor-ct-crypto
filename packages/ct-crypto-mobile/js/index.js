@@ -55,7 +55,22 @@ class MobileShieldedProvider extends AbstractShieldedProvider {
     if (typeof raw !== 'string') {
       throw new Error('MobileShieldedProvider expected a base64 string from the native bridge');
     }
-    return Buffer.from(raw, 'base64');
+    // Validate strictly: Buffer.from(_, 'base64') silently DROPS invalid
+    // characters and truncates at bad padding, so a corrupt native-side string
+    // would become the wrong bytes (e.g. a mangled blinding factor) with no
+    // error (review finding L-7). Reject anything that is not canonical base64,
+    // matching the strict decoders on the Swift/Kotlin bridges.
+    const canonical = /^[A-Za-z0-9+/]*={0,2}$/;
+    if (raw.length % 4 !== 0 || !canonical.test(raw)) {
+      throw new Error('MobileShieldedProvider received a malformed base64 string from the native bridge');
+    }
+    const buf = Buffer.from(raw, 'base64');
+    // Round-trip guard: if decode+re-encode does not reproduce the input, the
+    // string was not exact base64 and the bytes cannot be trusted.
+    if (buf.toString('base64') !== raw) {
+      throw new Error('MobileShieldedProvider received a non-canonical base64 string from the native bridge');
+    }
+    return buf;
   }
 
   // The RN bridge cannot carry BigInt inside objects either — entries cross

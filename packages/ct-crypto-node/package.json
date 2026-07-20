@@ -27,7 +27,8 @@
   "scripts": {
     "build": "cargo build --features napi --release && node scripts/copy-prebuild.js",
     "build:debug": "cargo build --features napi && node scripts/copy-prebuild.js",
-    "test": "jest"
+    "test": "jest",
+    "prepublishOnly": "node scripts/check-prebuilds.js"
   },
   "dependencies": {
     "@hathor/ct-crypto-provider": "0.0.1-shielded"

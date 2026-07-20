@@ -2,7 +2,7 @@
 //!
 //! Uses proc-macro approach — no .udl file needed.
 
-use secp256k1_zkp::{Generator, PublicKey, SecretKey, Tweak, ZERO_TWEAK, SECP256K1};
+use secp256k1_zkp::{Generator, PublicKey, SecretKey, Tweak, ZERO_TWEAK};
 use hathor_ct_crypto_core::error::HathorCtError;
 
 /// Backward-compat wrapper: accepts raw byte slices and returns shared secret bytes.
@@ -41,12 +41,6 @@ fn to_tweak(bytes: &[u8]) -> Result<Tweak, CryptoError> {
     Tweak::from_slice(bytes).map_err(|e| CryptoError::InvalidInput { msg: e.to_string() })
 }
 
-fn to_sk(bytes: &[u8]) -> Result<SecretKey, CryptoError> {
-    if bytes.len() != 32 {
-        return Err(CryptoError::InvalidInput { msg: "must be 32 bytes".into() });
-    }
-    SecretKey::from_slice(bytes).map_err(|e| CryptoError::InvalidInput { msg: e.to_string() })
-}
 
 fn to_gen(bytes: &[u8]) -> Result<Generator, CryptoError> {
     if bytes.len() != 33 {
@@ -142,57 +136,35 @@ pub fn derive_rewind_nonce_uniffi(shared_secret: Vec<u8>) -> Result<Vec<u8>, Cry
     Ok(hathor_ct_crypto_core::ecdh::derive_rewind_nonce(&ss).to_vec())
 }
 
+/// DISABLED — do not use (review finding L-5).
+///
+/// This function self-generated BOTH blinding factors internally, so the caller
+/// could not control the value blinding factor. That is a balance-breaking
+/// footgun: the last output of a transaction must use a *specific* balancing vbf
+/// for the homomorphic balance equation to hold, and an output built here would
+/// silently produce an invalid transaction. It is unused by the RN bridge.
+///
+/// It now rejects unconditionally. Use `create_shielded_output_with_blinding_uniffi`
+/// (caller-supplied vbf) or `create_shielded_output_with_both_blindings_uniffi`
+/// (caller-supplied vbf + abf) instead, both of which delegate to crypto-core.
+///
+/// NOTE: the `#[uniffi::export]` signature is kept so the generated Swift/Kotlin
+/// FFI checksums are unchanged (no binding regeneration required). Fully removing
+/// this and the other unused exports is a follow-up that regenerates the bindings
+/// and must be validated on-device against the runtime checksum handshake.
 #[uniffi::export]
 pub fn create_shielded_output_uniffi(
-    value: u64,
-    recipient_pubkey: Vec<u8>,
-    token_uid: Vec<u8>,
-    fully_shielded: bool,
+    _value: u64,
+    _recipient_pubkey: Vec<u8>,
+    _token_uid: Vec<u8>,
+    _fully_shielded: bool,
 ) -> Result<CreatedShieldedOutput, CryptoError> {
-    let pub_bytes: [u8; 33] = recipient_pubkey.as_slice().try_into()
-        .map_err(|_| CryptoError::InvalidInput { msg: "pubkey must be 33 bytes".into() })?;
-    let tuid = to_uid(&token_uid)?;
-
-    let (eph_sk, eph_pk) = SECP256K1.generate_keypair(&mut rand::thread_rng());
-    let shared_secret = ecdh_shared_secret_bytes(&eph_sk.secret_bytes(), &pub_bytes)?;
-    let nonce = hathor_ct_crypto_core::ecdh::derive_rewind_nonce(&shared_secret);
-    let nonce_sk = to_sk(&nonce)?;
-
-    // For FullShielded outputs, the rangeproof message MUST embed
-    // `token_uid(32B) || asset_blinding_factor(32B)` so the recipient can
-    // recover them on rewind. Without this the cross-check in
-    // rewind_full_shielded_output fails ("asset commitment verification failed").
-    let (generator, ac_bytes, abf_bytes, message) = if fully_shielded {
-        let abf_sk = SecretKey::new(&mut rand::thread_rng());
-        let abf = abf_sk.secret_bytes();
-        let tag = hathor_ct_crypto_core::generators::derive_tag(&tuid)?;
-        let abf_tweak = to_tweak(&abf)?;
-        let asset_comm = hathor_ct_crypto_core::generators::create_asset_commitment(&tag, &abf_tweak)?;
-        let mut msg = [0u8; 64];
-        msg[..32].copy_from_slice(&tuid);
-        msg[32..64].copy_from_slice(&abf);
-        (asset_comm, Some(asset_comm.serialize().to_vec()), Some(abf.to_vec()), Some(msg))
-    } else {
-        (hathor_ct_crypto_core::generators::derive_asset_tag(&tuid)?, None, None, None)
-    };
-
-    let bf_sk = SecretKey::new(&mut rand::thread_rng());
-    let bf = bf_sk.secret_bytes();
-    let bf_tweak = to_tweak(&bf)?;
-    let comm = hathor_ct_crypto_core::pedersen::create_commitment(value, &bf_tweak, &generator)?;
-    let proof = hathor_ct_crypto_core::rangeproof::create_range_proof(
-        value, &bf_tweak, &comm, &generator,
-        message.as_ref().map(|m| m.as_slice()),
-        Some(&nonce_sk),
-    )?;
-
-    Ok(CreatedShieldedOutput {
-        ephemeral_pubkey: eph_pk.serialize().to_vec(),
-        commitment: comm.serialize().to_vec(),
-        range_proof: proof.serialize(),
-        blinding_factor: bf.to_vec(),
-        asset_commitment: ac_bytes,
-        asset_blinding_factor: abf_bytes,
+    Err(CryptoError::InvalidInput {
+        msg: "create_shielded_output_uniffi is disabled (self-generates the value \
+              blinding factor — balance-breaking). Use \
+              create_shielded_output_with_blinding_uniffi or \
+              create_shielded_output_with_both_blindings_uniffi."
+            .into(),
     })
 }
 
@@ -204,48 +176,45 @@ pub fn create_shielded_output_with_blinding_uniffi(
     fully_shielded: bool,
     blinding_factor: Vec<u8>,
 ) -> Result<CreatedShieldedOutput, CryptoError> {
-    let pub_bytes: [u8; 33] = recipient_pubkey.as_slice().try_into()
-        .map_err(|_| CryptoError::InvalidInput { msg: "pubkey must be 33 bytes".into() })?;
+    // Structural validation (bad length = programming error) -> InvalidInput.
+    if recipient_pubkey.len() != 33 {
+        return Err(CryptoError::InvalidInput { msg: "pubkey must be 33 bytes".into() });
+    }
     let tuid = to_uid(&token_uid)?;
     let bf = to_uid(&blinding_factor)?;
 
-    let (eph_sk, eph_pk) = SECP256K1.generate_keypair(&mut rand::thread_rng());
-    let shared_secret = ecdh_shared_secret_bytes(&eph_sk.secret_bytes(), &pub_bytes)?;
-    let nonce = hathor_ct_crypto_core::ecdh::derive_rewind_nonce(&shared_secret);
-    let nonce_sk = to_sk(&nonce)?;
-
-    // See comment in create_shielded_output_uniffi above — FullShielded must
-    // embed (token_uid || abf) in the rangeproof message for recipient recovery.
-    let (generator, ac_bytes, abf_bytes, message) = if fully_shielded {
-        let abf_sk = SecretKey::new(&mut rand::thread_rng());
-        let abf = abf_sk.secret_bytes();
-        let tag = hathor_ct_crypto_core::generators::derive_tag(&tuid)?;
-        let abf_tweak = to_tweak(&abf)?;
-        let asset_comm = hathor_ct_crypto_core::generators::create_asset_commitment(&tag, &abf_tweak)?;
-        let mut msg = [0u8; 64];
-        msg[..32].copy_from_slice(&tuid);
-        msg[32..64].copy_from_slice(&abf);
-        (asset_comm, Some(asset_comm.serialize().to_vec()), Some(abf.to_vec()), Some(msg))
+    // Delegate the consensus-critical construction to crypto-core — the SAME
+    // implementation the Node (NAPI) binding uses — instead of re-deriving the
+    // ephemeral-nonce / message-layout / commitment / range-proof pipeline
+    // inline. Keeping a single implementation removes the cross-surface drift
+    // hazard (finding M-2) and inherits core's secret-zeroization (finding L-3).
+    if fully_shielded {
+        // AmountShielded caller path with a self-generated asset blinding factor.
+        let abf = SecretKey::new(&mut rand::thread_rng()).secret_bytes();
+        let r = hathor_ct_crypto_core::ecdh::create_full_shielded_output(
+            value, &recipient_pubkey, &tuid, &bf, &abf,
+        )?;
+        Ok(CreatedShieldedOutput {
+            ephemeral_pubkey: r.ephemeral_pubkey.to_vec(),
+            commitment: r.commitment,
+            range_proof: r.range_proof,
+            blinding_factor: r.value_blinding_factor.to_vec(),
+            asset_commitment: Some(r.asset_commitment),
+            asset_blinding_factor: Some(r.asset_blinding_factor.to_vec()),
+        })
     } else {
-        (hathor_ct_crypto_core::generators::derive_asset_tag(&tuid)?, None, None, None)
-    };
-
-    let bf_tweak = to_tweak(&bf)?;
-    let comm = hathor_ct_crypto_core::pedersen::create_commitment(value, &bf_tweak, &generator)?;
-    let proof = hathor_ct_crypto_core::rangeproof::create_range_proof(
-        value, &bf_tweak, &comm, &generator,
-        message.as_ref().map(|m| m.as_slice()),
-        Some(&nonce_sk),
-    )?;
-
-    Ok(CreatedShieldedOutput {
-        ephemeral_pubkey: eph_pk.serialize().to_vec(),
-        commitment: comm.serialize().to_vec(),
-        range_proof: proof.serialize(),
-        blinding_factor: bf.to_vec(),
-        asset_commitment: ac_bytes,
-        asset_blinding_factor: abf_bytes,
-    })
+        let r = hathor_ct_crypto_core::ecdh::create_amount_shielded_output(
+            value, &recipient_pubkey, &tuid, &bf,
+        )?;
+        Ok(CreatedShieldedOutput {
+            ephemeral_pubkey: r.ephemeral_pubkey.to_vec(),
+            commitment: r.commitment,
+            range_proof: r.range_proof,
+            blinding_factor: r.value_blinding_factor.to_vec(),
+            asset_commitment: None,
+            asset_blinding_factor: None,
+        })
+    }
 }
 
 #[uniffi::export]
@@ -256,38 +225,27 @@ pub fn create_shielded_output_with_both_blindings_uniffi(
     value_blinding_factor: Vec<u8>,
     asset_blinding_factor: Vec<u8>,
 ) -> Result<CreatedShieldedOutput, CryptoError> {
-    let pub_bytes: [u8; 33] = recipient_pubkey.as_slice().try_into()
-        .map_err(|_| CryptoError::InvalidInput { msg: "pubkey must be 33 bytes".into() })?;
+    // Structural validation (bad length = programming error) -> InvalidInput.
+    if recipient_pubkey.len() != 33 {
+        return Err(CryptoError::InvalidInput { msg: "pubkey must be 33 bytes".into() });
+    }
     let tuid = to_uid(&token_uid)?;
     let vbf = to_uid(&value_blinding_factor)?;
     let abf = to_uid(&asset_blinding_factor)?;
 
-    let (eph_sk, eph_pk) = SECP256K1.generate_keypair(&mut rand::thread_rng());
-    let shared_secret = ecdh_shared_secret_bytes(&eph_sk.secret_bytes(), &pub_bytes)?;
-    let nonce = hathor_ct_crypto_core::ecdh::derive_rewind_nonce(&shared_secret);
-    let nonce_sk = to_sk(&nonce)?;
-
-    let tag = hathor_ct_crypto_core::generators::derive_tag(&tuid)?;
-    let abf_tweak = to_tweak(&abf)?;
-    let asset_comm = hathor_ct_crypto_core::generators::create_asset_commitment(&tag, &abf_tweak)?;
-    let vbf_tweak = to_tweak(&vbf)?;
-    let comm = hathor_ct_crypto_core::pedersen::create_commitment(value, &vbf_tweak, &asset_comm)?;
-    // FullShielded: embed (token_uid || abf) in the rangeproof message so
-    // the recipient can recover them on rewind and verify the asset_commitment.
-    let mut message = [0u8; 64];
-    message[..32].copy_from_slice(&tuid);
-    message[32..64].copy_from_slice(&abf);
-    let proof = hathor_ct_crypto_core::rangeproof::create_range_proof(
-        value, &vbf_tweak, &comm, &asset_comm, Some(&message), Some(&nonce_sk),
+    // Delegate to crypto-core (same implementation as the Node binding) rather
+    // than re-deriving the FullShielded construction inline — see M-2 / L-3.
+    let r = hathor_ct_crypto_core::ecdh::create_full_shielded_output(
+        value, &recipient_pubkey, &tuid, &vbf, &abf,
     )?;
 
     Ok(CreatedShieldedOutput {
-        ephemeral_pubkey: eph_pk.serialize().to_vec(),
-        commitment: comm.serialize().to_vec(),
-        range_proof: proof.serialize(),
-        blinding_factor: vbf.to_vec(),
-        asset_commitment: Some(asset_comm.serialize().to_vec()),
-        asset_blinding_factor: Some(abf.to_vec()),
+        ephemeral_pubkey: r.ephemeral_pubkey.to_vec(),
+        commitment: r.commitment,
+        range_proof: r.range_proof,
+        blinding_factor: r.value_blinding_factor.to_vec(),
+        asset_commitment: Some(r.asset_commitment),
+        asset_blinding_factor: Some(r.asset_blinding_factor.to_vec()),
     })
 }
 
@@ -346,29 +304,32 @@ pub fn decrypt_shielded_output_uniffi(
         msg: "token_uid is required for AmountShielded decryption".into(),
     })?;
 
-    let pk: [u8; 32] = recipient_privkey.as_slice().try_into()
-        .map_err(|_| CryptoError::InvalidInput { msg: "privkey must be 32 bytes".into() })?;
-    let eph: [u8; 33] = ephemeral_pubkey.as_slice().try_into()
-        .map_err(|_| CryptoError::InvalidInput { msg: "ephemeral_pubkey must be 33 bytes".into() })?;
+    // Structural length validation -> InvalidInput (mirrors the FullShielded
+    // path and the node/wasm bindings). Everything the core rewind can fail on
+    // afterwards — a scan-miss (output not addressed to this key) or a corrupt
+    // proof/commitment — is a crypto/scan failure and maps to CryptoFailed via
+    // `From<HathorCtError>` (the `?` below).
+    if recipient_privkey.len() != 32 {
+        return Err(CryptoError::InvalidInput { msg: "privkey must be 32 bytes".into() });
+    }
+    if ephemeral_pubkey.len() != 33 {
+        return Err(CryptoError::InvalidInput { msg: "ephemeral_pubkey must be 33 bytes".into() });
+    }
     let tuid = to_uid(&tuid_bytes)?;
 
-    let shared_secret = ecdh_shared_secret_bytes(&pk, &eph)?;
-    let nonce = hathor_ct_crypto_core::ecdh::derive_rewind_nonce(&shared_secret);
-    let nonce_sk = to_sk(&nonce)?;
-
-    let generator = hathor_ct_crypto_core::generators::derive_asset_tag(&tuid)?;
-
-    let proof = hathor_ct_crypto_core::rangeproof::deserialize_range_proof(&range_proof)?;
-    let comm = hathor_ct_crypto_core::pedersen::deserialize_commitment(&commitment)?;
-    // A successful rewind already verifies the proof against the
-    // commitment inside libsecp256k1 (rangeproof_rewind runs the full verifier),
-    // and consensus enforces the range bound. NAPI and WASM do not re-verify
-    // here; drop the redundant call so all three surfaces behave identically.
-    let (value, blinding, _msg) = hathor_ct_crypto_core::rangeproof::rewind_range_proof(&proof, &comm, &nonce_sk, &generator)?;
+    // Delegate to crypto-core (same implementation as the Node binding) rather
+    // than re-deriving the ECDH-nonce / rewind pipeline inline (M-2 / L-3).
+    let result = hathor_ct_crypto_core::ecdh::rewind_amount_shielded_output(
+        &recipient_privkey,
+        &ephemeral_pubkey,
+        &commitment,
+        &range_proof,
+        &tuid,
+    )?;
 
     Ok(DecryptedShieldedOutput {
-        value,
-        blinding_factor: blinding.as_ref().to_vec(),
+        value: result.value,
+        blinding_factor: result.blinding_factor,
         token_uid: tuid.to_vec(),
         asset_blinding_factor: None,
         output_type: "AmountShielded".into(),
@@ -441,10 +402,9 @@ pub fn get_zero_tweak_uniffi() -> Vec<u8> {
 ///
 /// Mirrors `napi_bindings::generate_random_blinding_factor`. Exposed via
 /// UniFFI so the mobile RN bridge (and any future UniFFI consumer) can
-/// call a dedicated RNG primitive — without this, mobile had to call
-/// `create_shielded_output_uniffi` with dummy inputs and extract the
-/// blinding factor from the unused result. That workaround is removed
-/// once mobile picks up this new export.
+/// call a dedicated RNG primitive. (This replaced an old workaround that
+/// abused `create_shielded_output_uniffi` to extract a blinding factor —
+/// that function is now disabled; see its doc.)
 #[uniffi::export]
 pub fn generate_random_blinding_factor_uniffi() -> Vec<u8> {
     // Delegate to the validated core generator (rejection-samples until
@@ -475,6 +435,7 @@ pub fn create_commitment_uniffi(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use secp256k1_zkp::SECP256K1;
 
     // derive_rewind_nonce_uniffi must reject wrong-length input rather
     // than substitute an all-zero secret (publicly computable nonce).
@@ -596,5 +557,52 @@ mod tests {
         assert_eq!(ok.value, 100);
         assert_eq!(ok.output_type, "FullShielded");
         assert_eq!(ok.token_uid, tuid.to_vec());
+    }
+
+    // M-2 equivalence: the AmountShielded create path now delegates to
+    // crypto-core (create_amount_shielded_output); a round-trip through the
+    // uniffi surface must recover the value/vbf/tokenUid, and a wrong key must
+    // be a scan-miss (CryptoFailed), matching the node/core semantics.
+    #[test]
+    fn test_amount_shielded_create_rewind_round_trip() {
+        let (sk_owner, pk_owner) = SECP256K1.generate_keypair(&mut rand::thread_rng());
+        let (sk_other, _) = SECP256K1.generate_keypair(&mut rand::thread_rng());
+        let tuid = [7u8; 32];
+        let vbf = generate_random_blinding_factor_uniffi();
+
+        let out = create_shielded_output_with_blinding_uniffi(
+            4242,
+            pk_owner.serialize().to_vec(),
+            tuid.to_vec(),
+            false, // AmountShielded
+            vbf.clone(),
+        )
+        .unwrap();
+        assert!(out.asset_commitment.is_none());
+
+        let ok = decrypt_shielded_output_uniffi(
+            sk_owner.secret_bytes().to_vec(),
+            out.ephemeral_pubkey.clone(),
+            out.commitment.clone(),
+            out.range_proof.clone(),
+            Some(tuid.to_vec()),
+            None,
+        )
+        .unwrap();
+        assert_eq!(ok.value, 4242);
+        assert_eq!(ok.output_type, "AmountShielded");
+        assert_eq!(ok.blinding_factor, vbf);
+        assert_eq!(ok.token_uid, tuid.to_vec());
+
+        // Wrong key → scan-miss → CryptoFailed (lengths all valid).
+        let err = decrypt_err(decrypt_shielded_output_uniffi(
+            sk_other.secret_bytes().to_vec(),
+            out.ephemeral_pubkey,
+            out.commitment,
+            out.range_proof,
+            Some(tuid.to_vec()),
+            None,
+        ));
+        assert!(matches!(err, CryptoError::CryptoFailed { .. }));
     }
 }

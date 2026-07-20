@@ -1,0 +1,10 @@
+# Pin the Rust toolchain version so the release binaries (which handle wallet
+# keys and consensus-critical crypto) are reproducible and every build — CI,
+# release, and contributor — uses the same compiler (review finding L-10). The
+# CI actions are already SHA-pinned; this pins the toolchain *version* they run.
+# dtolnay/rust-toolchain respects this file, so its `targets:` inputs add the
+# per-job cross-compile targets (wasm32, ios, android) to this exact toolchain.
+# Bump deliberately, in lockstep across the workspace.
+[toolchain]
+channel = "1.94.0"
+profile = "minimal"

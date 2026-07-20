@@ -1,23 +1,32 @@
 //! Browser-compatible bindings for the Hathor confidential-transaction crypto.
 //!
-//! Two scoped surfaces:
+//! Two scoped surfaces (this list is the review artifact for the "no signing /
+//! no RNG leaked into the browser" invariant — keep it in sync with the
+//! `#[wasm_bindgen]` exports below):
 //!
-//! 1. **Verifier** (since 0.1.0) — `createCommitment`,
-//!    `createAssetCommitment`, `deriveTag`, `deriveAssetTag`,
-//!    `htrAssetTag`. The block explorer's "view tx unblinded" path
-//!    uses these to confirm a shared `(value, vbf, abf?)` opens to
-//!    the on-chain commitment.
+//! 1. **Verifier** (since 0.1.0) — commitment/generator recompute
+//!    (`createCommitment`, `createTrivialCommitment`, `createAssetCommitment`,
+//!    `deriveTag`, `deriveAssetTag`, `htrAssetTag`) plus the public-data
+//!    verifiers (`verifyRangeProof`, `verifySurjectionProof`,
+//!    `verifyCommitmentsSum`, `verifyBalance`, `validateCommitment`,
+//!    `validateGenerator`). The block explorer uses these to confirm a shared
+//!    `(value, vbf, abf?)` opens to the on-chain commitment and to validate
+//!    every proof/relation without any secret material.
 //!
 //! 2. **Auditor rewind** (since 0.2.0) — `rewindAmountShieldedOutput`,
 //!    `rewindFullShieldedOutput`, `deriveEcdhSharedSecret`. The
 //!    `shielded-outputs-audit` browser app uses these to recover
 //!    `(value, vbf, abf?, tokenUid)` from a scan xpriv + on-chain
 //!    output. The xpriv stays in the browser; nothing crosses the
-//!    network.
+//!    network. SECURITY NOTE (review finding L-4): the scan xpriv and the
+//!    recovered blinding factors live in JS/wasm memory that cannot be
+//!    reliably zeroed for the page's lifetime — treat a browser running these
+//!    as holding scan-key material (a scan key is not a spend key, but it
+//!    deanonymizes). Standard browser key-handling controls apply.
 //!
-//! Surjection-proof creation, signing, and balancing-blinding-factor
-//! computation stay in `@hathor/ct-crypto-node` — those are wallet
-//! responsibilities, not browser ones.
+//! Surjection-proof creation, output creation, signing, and
+//! balancing-blinding-factor computation stay in `@hathor/ct-crypto-node` —
+//! those are wallet responsibilities, not browser ones, and reject here.
 //!
 //! Sibling crate `hathor-ct-crypto` ships the Node (NAPI) build with
 //! the full primitive surface. Keep this file's API behaviorally
@@ -346,16 +355,16 @@ pub fn verify_range_proof(proof: &[u8], commitment: &[u8], generator: &[u8]) -> 
     let gen = parse_generator(generator)?;
     match hathor_ct_crypto_core::rangeproof::verify_range_proof(&p, &c, &gen) {
         Ok(range) => {
-            // Defense-in-depth upper-bound guard, kept in lockstep with the NAPI
-            // wrapper (review finding M1): core verify only enforces min_value >= 1,
-            // not the upper edge of the documented [1, 1 + 2^40) invariant, so a
-            // hostile prover's wider-min_bits proof would otherwise verify. Honest
-            // proofs cap at MAX_PROVABLE_AMOUNT, so legitimate proofs always pass.
-            // Intentionally stricter than crypto-core until the check lands upstream.
-            if range.start < 1
-                || range.end > hathor_ct_crypto_core::rangeproof::MAX_PROVABLE_AMOUNT + 1
-            {
-                return Ok(false);
+            // Only the lower bound is checked, matching the hathor-core node
+            // exactly. Do NOT add an upper-bound check: the node enforces none
+            // (its verify_range_proof checks only range.start < 1), so a client
+            // upper-bound guard would make this verifier stricter than the node
+            // and reject node-accepted outputs — the divergence SECURITY.md rates
+            // high. The [1, 2^40) invariant is create-side only; verify-side
+            // enforcement belongs upstream in hathor-core (review finding M-1).
+            // Kept in lockstep with the NAPI wrapper.
+            if range.start < 1 {
+                return Ok(false); // Reject zero-amount proofs (matches node)
             }
             Ok(true)
         }

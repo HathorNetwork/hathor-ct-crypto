@@ -24,7 +24,10 @@ if ! command -v wasm-pack >/dev/null 2>&1; then
   exit 1
 fi
 
-wasm-pack build --target web
+# `-- --locked` forwards to the underlying `cargo build` so the wasm crate is
+# built against the committed Cargo.lock — the published browser verifier must
+# not silently pick up a drifted dependency graph (review finding M-5).
+wasm-pack build --target web -- --locked
 
 # Copy the wallet-lib shielded crypto provider adapter + its types + the LICENSE
 # into the published artifact. Sources live at repo root so they stay in git;
@@ -55,9 +58,12 @@ p.module = "hathor_ct_crypto_wasm.js";
 p.description = "Browser-compatible (wasm-bindgen) build of the Hathor confidential-transaction crypto primitives. Verifier-only: see @hathor/ct-crypto-node for the full Node surface.";
 p.sideEffects = ["./hathor_ct_crypto_wasm.js", "./snippets/*", "./provider.js"];
 p.license = "MIT";
-// Pin the runtime deps that provider.js imports, taken from
-// the dev manifest so provider/buffer pins stay in one place.
-p.dependencies = Object.assign({}, p.dependencies, src.dependencies);
+// Pin the runtime deps that provider.js imports, taken from the dev manifest
+// so provider/buffer pins stay in one place. REPLACE the dependency map with
+// exactly the vetted set — do NOT merge over p.dependencies (what wasm-pack
+// emitted), which could carry an npm dependency injected from a Rust crate
+// into the published package (review finding L-11).
+p.dependencies = { ...src.dependencies };
 for (const f of ["hathor_ct_crypto_wasm_bg.wasm.d.ts", "provider.js", "provider.d.ts", "LICENSE"]) {
   if (!p.files.includes(f)) p.files.push(f);
 }

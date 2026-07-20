@@ -350,9 +350,9 @@ export abstract class AbstractShieldedProvider implements IShieldedCryptoProvide
     return Promise.reject(
       new Error(
         `${name} is not supported by this shielded crypto provider. ` +
-          'Verifier-only providers (e.g. @hathor/ct-crypto-wasm) expose only the ' +
-          'commitment-recompute surface; use @hathor/ct-crypto-node for signing / ' +
-          'rewinding.'
+          'Verifier/auditor providers (e.g. @hathor/ct-crypto-wasm) expose ' +
+          'verification, commitment-recompute, and rewind, but not output ' +
+          'creation, signing, or RNG; use @hathor/ct-crypto-node for those.'
       )
     );
   }

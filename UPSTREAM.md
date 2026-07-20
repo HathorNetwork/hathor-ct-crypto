@@ -43,7 +43,10 @@ of a producible artifact or a verification outcome:
 - `rangeproof.rs`: explicit 40-bit amount cap (`MAX_PROVABLE_AMOUNT` = 2⁴⁰) and a
   deserialization size cap (`MAX_RANGE_PROOF_SIZE` = 3328 bytes). The range-proof
   params (`min_value = 1`, `exp = 0`, `min_bits = 40`) are unchanged from the
-  node.
+  node. **The cap is CREATE-side only** — it refuses to *build* an oversize
+  proof. `verify_range_proof` deliberately does NOT enforce an upper bound,
+  because the node enforces none either (see "Known limitations" below);
+  enforcing it client-side would diverge from consensus.
 - `pedersen.rs`: identity-point guards on the commitment constructors — reject
   the zero-amount / zero-blinding identity point that upstream would
   `assert!`-abort on across the FFI boundary.
@@ -70,6 +73,23 @@ drift (the `make check-drift` guard flags it).
 normalized-amount design (e.g. 10¹⁶ scaling factors) ever flows into
 commitments, it would dwarf the fork's 2⁴⁰ cap — re-evaluate the cap if that
 lands.
+
+## Known limitations (deferred upstream)
+
+- **M-1 — range-proof verify has no upper bound.** `verify_range_proof` /
+  `batch_verify_range_proofs` check only `range.start >= 1`; they never check
+  `range.end`, so a proof crafted out-of-tree with a wider `min_bits`/`exp`
+  proves a value in `[1, ~2⁶⁴)` and still verifies — contradicting the
+  documented `[1, 2⁴⁰)` invariant. This is **not exploitable** (the balance
+  equation binds mod the curve order `n ≈ 2²⁵⁶`; wrapping it needs ~2¹⁹²
+  outputs) and the hathor-core node has the byte-identical gap, so client and
+  node agree. The fix must land **upstream** in hathor-core's
+  `verify_range_proof` (add `range.end <= MAX_PROVABLE_AMOUNT + 1`) so node and
+  clients tighten in lockstep; adding it only in this fork's bindings would make
+  the wallet stricter than the node and reject node-accepted outputs — a
+  divergence `SECURITY.md` rates high. Do NOT add a client-side upper-bound
+  guard; the create-side cap already prevents this ecosystem from producing such
+  proofs, which is the safe, non-divergent direction.
 
 ## Staying in sync
 

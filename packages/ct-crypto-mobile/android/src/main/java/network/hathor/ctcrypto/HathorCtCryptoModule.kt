@@ -40,7 +40,8 @@ import uniffi.hathor_ct_crypto.generateRandomBlindingFactorUniffi
  *   - bytes cross the bridge as base64 strings
  *   - u64 values cross as decimal strings (they can exceed 2^53)
  *   - records cross as maps with the provider's camelCase keys
- *   - errors reject with code "InvalidInput" or "CryptoFailed"
+ *   - errors reject with code "InvalidInput", "CryptoFailed", or "Internal"
+ *     (Internal = environment/linkage failure, never a benign scan-miss)
  */
 class HathorCtCryptoModule(reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
@@ -79,7 +80,13 @@ class HathorCtCryptoModule(reactContext: ReactApplicationContext) :
       is CryptoException.InvalidInput -> promise.reject("InvalidInput", e.msg, e)
       is CryptoException.CryptoFailed -> promise.reject("CryptoFailed", e.msg, e)
       is IllegalArgumentException -> promise.reject("InvalidInput", e.message, e)
-      else -> promise.reject("CryptoFailed", e.message ?: e.toString(), e)
+      // Any OTHER throwable (UnsatisfiedLinkError from a stale/missing native
+      // library, a uniffi panic, etc.) is an environment/internal failure, NOT
+      // a crypto failure. It MUST NOT reuse "CryptoFailed": the JS layer's
+      // _isScanMiss() treats "CryptoFailed" as a benign "not addressed to me"
+      // scan-miss, so mapping a linkage failure there would silently swallow it
+      // on every output during a chain scan. Surface it loudly instead.
+      else -> promise.reject("Internal", e.message ?: e.toString(), e)
     }
   }
 

@@ -16,10 +16,12 @@
  * `Buffer`s whose `Drop` links against symbols only present inside a running
  * Node.js. Two properties matter at this boundary:
  *
- *   1. The 40-bit range-proof cap (`MAX_PROVABLE_AMOUNT = 2^40`, a consensus
- *      value shared with hathor-core): amounts at the cap are provable, amounts
- *      above it are rejected up front rather than turned into oversize,
- *      magnitude-leaking proofs.
+ *   1. The 40-bit range-proof CREATE-side cap (`MAX_PROVABLE_AMOUNT = 2^40`).
+ *      This is a fork-only hardening on the proving side (see UPSTREAM.md) — it
+ *      is NOT a value the hathor-core node enforces; the node's verifier applies
+ *      no upper bound (finding M-1). We refuse to *build* an oversize,
+ *      magnitude-leaking proof: amounts at the cap are provable, amounts above
+ *      it are rejected up front.
  *   2. BigInt marshaling is lossless past 2^53 (the largest integer a JS Number
  *      holds exactly) all the way to the u64 range — the reason the boundary
  *      takes BigInt, not number.
