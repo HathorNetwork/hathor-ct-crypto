@@ -18,12 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      # Exercise the binding crates, not just crypto-core. The mobile (UniFFI)
-      # crate is a plain workspace member, so it is built and tested here too.
+      # cargo check builds the NAPI binding (cdylib links against the Node
+      # runtime via dynamic lookup, so a check/build is fine).
       - name: cargo check (workspace, NAPI feature)
         run: cargo check --workspace --locked --features hathor-ct-crypto-node/napi
-      - name: cargo test (crypto-core + NAPI BigInt + UniFFI tests)
-        run: cargo test --workspace --locked --features hathor-ct-crypto-node/napi
+      # cargo test excludes the NAPI binding: under napi-rs 3 a standalone test
+      # binary for the #[napi] glue fails to link (Node-runtime symbols). The
+      # binding is thin glue tested end-to-end via jest (the `node` job); its
+      # crypto logic lives in crypto-core, tested here. Mobile (UniFFI) tests run.
+      - name: cargo test (crypto-core + UniFFI)
+        run: cargo test --workspace --exclude hathor-ct-crypto-node --locked
 
   bindings-drift:
     name: mobile bindings drift check (Swift + Kotlin)
@@ -88,20 +92,11 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      # Build the real native addon and run the JS suites against it (not
-      # stubs/fakes). CT_CRYPTO_REQUIRE_NATIVE=1 makes the node suite FAIL
-      # rather than silently skip if the addon is missing.
-      - name: Build native addon
-        run: cargo build -p hathor-ct-crypto-node --locked --features napi --release
-      - name: Stage prebuild for the loader
-        # The loader (index.js) resolves linux-<arch>-<libc> on Linux; the
-        # ubuntu-latest runner is glibc, so stage into linux-x64-glibc or the
-        # native addon never loads and the JS suite silently skips.
-        run: |
-          mkdir -p packages/ct-crypto-node/prebuilds/linux-x64-glibc
-          cp target/release/libhathor_ct_crypto.so \
-             packages/ct-crypto-node/prebuilds/linux-x64-glibc/ct-crypto.node
-      # npm ci validates the committed package-lock.json.
+      # The ct-crypto-node `pretest` script (`napi build --features napi`) builds
+      # the real native addon for the host before jest runs, so the JS suites run
+      # against real crypto (not stubs). CT_CRYPTO_REQUIRE_NATIVE=1 makes the node
+      # suite FAIL rather than silently skip if the addon somehow fails to load.
+      # npm ci validates the committed package-lock.json and installs @napi-rs/cli.
       - name: npm ci
         run: npm ci
       - name: npm run lint

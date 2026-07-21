@@ -2,8 +2,19 @@
 
 All four packages (`@hathor/ct-crypto-provider`, `@hathor/ct-crypto-node`,
 `@hathor/ct-crypto-mobile`, `@hathor/ct-crypto-wasm`) release in lockstep
-under one version. Native binaries are always CI-built; publishing to npm is
-run by a maintainer from a machine with npm 2FA.
+under one version. Native binaries are always CI-built.
+
+- **`@hathor/ct-crypto-node`** is now built AND published entirely from CI via
+  napi-rs (per-platform packages + `optionalDependencies` + npm provenance).
+- **`@hathor/ct-crypto-mobile`** and **`@hathor/ct-crypto-wasm`** are CI-built;
+  a maintainer publishes them from a machine with npm 2FA (below).
+- **`@hathor/ct-crypto-provider`** is a pure-TS package built and published
+  locally.
+
+Use the `shielded` dist-tag, NOT `latest`, while these are `-shielded`
+prereleases (review finding M-6): publishing a prerelease to `latest` makes a
+plain `npm install` resolve to the experimental build. Consumers opt in with
+`@shielded`. Move to `latest` only once a stable version ships.
 
 ## 1. Prepare
 
@@ -13,43 +24,42 @@ On a clean `master` checkout:
    dependency pin) in all four `packages/*/package.json`, and refresh
    `package-lock.json` (`npm install --package-lock-only`).
 2. Commit (signed), push to `master`, then create and push a signed tag
-   `vX.Y.Z`.
+   `vX.Y.Z`. The tag triggers the CI build+test gates.
 
-Pushing the tag triggers the CI builds:
+## 2. Publish `@hathor/ct-crypto-node` (from CI)
 
-- `build-node.yml` → the 7 NAPI prebuilds, completeness assert, `SHA256SUMS`,
-  uploaded as the `npm-package` artifact;
-- `build-mobile.yml` → the iOS XCFramework + Android jniLibs, completeness
-  assert, `SHA256SUMS`, uploaded as the `npm-package-mobile` artifact.
+Run the **`Build native addon (napi)`** workflow via *workflow_dispatch* with
+the `version` input and `dry-run: true` first:
 
-## 2. Publish (after both workflows are green on the tag)
+1. It builds the addon for all 7 targets, then the `publish` job (gated on the
+   `npm-publish` environment — a reviewer must approve) validates the tarball.
+2. Re-run with `dry-run: false` to publish. `napi prepublish` publishes each
+   per-platform package (`@hathor/ct-crypto-node-<target>`) and wires the main
+   package's `optionalDependencies`; the main package is then published with
+   `--provenance --tag shielded`. No binaries are committed, and there is no
+   "publish from a laptop" path for node anymore.
 
-1. Download the `npm-package` and `npm-package-mobile` artifacts from the
-   tag's workflow runs and verify each contains the version being released
-   and every native binary (the artifacts are ready-to-publish package
-   directories).
-2. Build the provider locally (`npm ci && npm run build` in
-   `packages/ct-crypto-provider`).
-3. Build the wasm package locally (`scripts/build-wasm.sh` inside the nix dev
-   shell) — it stamps the version from the package manifest into `pkg/`.
-4. `npm publish --tag shielded --access public`, in order: provider → node
-   (from the artifact) → mobile (from the artifact) → wasm (from `pkg/`).
-   The provider goes first so the other three packages' dependency pin
-   resolves immediately.
+One-time setup: in repo Settings create the `npm-publish` environment with the
+allowed publishers as *Required reviewers* and `NPM_TOKEN` as an environment
+secret.
 
-   **Use the `shielded` dist-tag, NOT `latest`, while these are `-shielded`
-   prereleases** (review finding M-6): publishing a prerelease to `latest`
-   makes a plain `npm install @hathor/ct-crypto-*` resolve to the experimental
-   build by default. Consumers opt in with `npm install @hathor/ct-crypto-node@shielded`.
-   Only move to `--tag latest` once a stable (non-prerelease) version ships.
+## 3. Publish provider, mobile, wasm (maintainer, npm 2FA)
 
-Never `npm publish` node or mobile from the repo checkout: the native
-binaries are gitignored, npm silently skips missing `files` entries, and the
-resulting tarball would install everywhere and fail at the first native call.
-Both native packages' `prepublishOnly` guards refuse for this reason (node
-asserts all platform prebuilds are present; mobile asserts the xcframework +
-jniLibs).
+After the node package is live:
 
-Maintainers typically drive both phases with a local helper script (kept out
-of the repo, like the commit helpers — see `.gitignore`); the steps above are
-the source of truth.
+1. Provider: `npm ci && npm run build` in `packages/ct-crypto-provider`, then
+   `npm publish --tag shielded --access public`. Publish this **first** so the
+   other packages' dependency pin resolves.
+2. Mobile: download the `npm-package-mobile` artifact from the tag's
+   `build-mobile.yml` run (iOS XCFramework + Android jniLibs + completeness
+   assert), verify it, then `npm publish --tag shielded --access public` from
+   the artifact. Its `prepublishOnly` guard refuses if the native binaries are
+   missing (never publish mobile from the repo checkout — the binaries are
+   gitignored and npm would silently ship a broken tarball).
+3. Wasm: build locally (`scripts/build-wasm.sh` inside the nix dev shell,
+   which stamps the version into `pkg/`), then `npm publish --tag shielded
+   --access public` from `pkg/`.
+
+Maintainers typically drive steps 3 with a local helper script (kept out of the
+repo, like the commit helpers — see `.gitignore`); the steps above are the
+source of truth.

@@ -1,4 +1,15 @@
-name: Build native addon
+name: Build native addon (napi)
+
+# Builds the @hathor/ct-crypto-node napi addon for every napi.targets platform.
+# On push/PR it is a build+test GATE (no publish). Publishing is manual
+# (workflow_dispatch) and runs from CI with npm provenance — replacing the old
+# build-a-prebuild-then-publish-from-a-laptop flow (review finding M-6).
+#
+# Distribution model (napi-rs v3): each platform ships as its own package
+# (@hathor/ct-crypto-node-<target>) wired into the main package's
+# optionalDependencies by `napi prepublish`. No binaries are committed.
+#
+# NOTE: validate the publish path with a dry run before the first real publish.
 
 on:
   push:
@@ -6,174 +17,152 @@ on:
     tags: ['v*']
   pull_request:
     branches: [master]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish (e.g. 0.0.1-shielded, or patch/minor/major)
+        type: string
+        required: true
+      dry-run:
+        description: Build and assemble without publishing
+        type: boolean
+        default: true
 
-# Least privilege. This workflow builds prebuilds and uploads them as CI
-# artifacts; it does NOT publish to npm (that is done by a maintainer from the
-# artifact — see the NOTE at the bottom of this file). Artifact upload/download
-# use the Actions runtime token, not GITHUB_TOKEN scopes, so read-only is
-# sufficient everywhere here.
 permissions:
   contents: read
 
+env:
+  PACKAGE: '@hathor/ct-crypto-node'
+  PACKAGE_DIR: packages/ct-crypto-node
+
 jobs:
   build:
+    name: Build ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Linux glibc
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            prebuild-dir: linux-x64-glibc
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            prebuild-dir: linux-arm64-glibc
-          # Linux musl (wallet-headless runs on Alpine/musl)
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            prebuild-dir: linux-x64-musl
-            musl: true
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-            prebuild-dir: linux-arm64-musl
-            musl: true
-          # macOS
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            prebuild-dir: darwin-arm64
-          - os: macos-latest
+        settings:
+          - host: macos-latest
             target: x86_64-apple-darwin
-            prebuild-dir: darwin-x64
-          # Windows (package.json advertises win32 — back it with a real build)
-          - os: windows-latest
+          - host: macos-latest
+            target: aarch64-apple-darwin
+          - host: windows-latest
             target: x86_64-pc-windows-msvc
-            prebuild-dir: win32-x64
-
-    runs-on: ${{ matrix.os }}
-
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup Node.js
+        if: ${{ !matrix.settings.docker }}
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
       - name: Install Rust
+        if: ${{ !matrix.settings.docker }}
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.settings.target }}
 
-      - name: Install musl toolchain
-        if: matrix.musl
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-
-      - name: Build native addon
-        # musl: a cdylib cannot link against a static libc, so disable the
-        # musl target's default crt-static or the *-linux-musl legs fail to
-        # link (and the release-completeness assert below would then fail).
-        env:
-          RUSTFLAGS: ${{ matrix.musl && '-C target-feature=-crt-static' || '' }}
-        run: cargo build -p hathor-ct-crypto-node --locked --features napi --release --target ${{ matrix.target }}
-
-      - name: Copy prebuild
+      # Native hosts (darwin/windows): install deps + build against the committed lockfile.
+      - name: Build (native host)
+        if: ${{ !matrix.settings.docker }}
         shell: bash
         run: |
-          mkdir -p packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cp target/${{ matrix.target }}/release/hathor_ct_crypto.dll packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}/ct-crypto.node
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            cp target/${{ matrix.target }}/release/libhathor_ct_crypto.dylib packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}/ct-crypto.node
-          else
-            cp target/${{ matrix.target }}/release/libhathor_ct_crypto.so packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}/ct-crypto.node
-          fi
+          npm ci
+          npm run build -w ${{ env.PACKAGE }} -- --target ${{ matrix.settings.target }}
 
-      - name: Upload prebuild artifact
-        if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
+      # Linux (gnu/musl/aarch64): build inside the official napi-rs image, which
+      # carries the correct rust + node + cross toolchain (incl. musl crt setup).
+      - name: Build (docker)
+        if: ${{ matrix.settings.docker }}
+        uses: addnab/docker-run-action@4f65fabd2431ebc8d299f8e5a018d79a769ae185 # v3
+        with:
+          image: ${{ matrix.settings.docker }}
+          options: --user 0:0 -v ${{ github.workspace }}:/build -w /build
+          run: npm ci && npm run build -w ${{ env.PACKAGE }} -- --target ${{ matrix.settings.target }}
+
+      - name: Upload binary
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master'))
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: prebuild-${{ matrix.prebuild-dir }}
-          path: packages/ct-crypto-node/prebuilds/${{ matrix.prebuild-dir }}/ct-crypto.node
+          name: bindings-${{ matrix.settings.target }}
+          path: ${{ env.PACKAGE_DIR }}/*.node
+          if-no-files-found: error
 
-  # Run Rust tests across the workspace (binding features included).
+  # Rust unit tests across the workspace (binding features included).
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-      - run: cargo test --workspace --locked --features hathor-ct-crypto-node/napi
+      # The NAPI binding itself is jest-tested in the `node` job of ci.yml; here
+      # we cargo-test its crypto logic (crypto-core) + the mobile UniFFI crate.
+      # Excluded: the #[napi] glue can't link a standalone test binary (napi-rs 3).
+      - run: cargo test --workspace --exclude hathor-ct-crypto-node --locked
 
-  # Collect all prebuilds into the publishable package. Restricted to pushes to
-  # master and tags so PR runs can't produce a publishable artifact.
-  collect:
-    needs: build
-    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
+  publish:
+    name: Publish to npm
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    needs: [build, test]
+    timeout-minutes: 15
+    # Configure the `npm-publish` environment in repo Settings: allowed publishers
+    # as Required reviewers + NPM_TOKEN as an environment secret. Publish (real or
+    # dry-run) waits for reviewer approval before it starts.
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write # npm provenance (closes the M-6 provenance gap)
+    defaults:
+      run:
+        working-directory: packages/ct-crypto-node
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Download all prebuild artifacts
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Install deps
+        working-directory: .
+        run: npm ci
+      - name: Create per-platform package dirs
+        run: npx napi create-npm-dirs
+      - name: Set the version to publish
+        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+      - name: Download platform binaries
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          path: prebuilds
-          pattern: prebuild-*
-          merge-multiple: false
-
-      - name: Arrange prebuilds
+          path: packages/ct-crypto-node/artifacts
+          pattern: bindings-*
+          merge-multiple: true
+      - name: Move binaries into npm/<target>
+        run: npx napi artifacts --dir artifacts
+      - name: Publish to npm
+        # prepublishOnly (napi prepublish -t npm) publishes the per-platform
+        # packages and wires the main package's optionalDependencies; npm then
+        # publishes the main package with provenance. Prereleases go to the
+        # `shielded` dist-tag, never `latest`. Dry-run skips scripts so no
+        # platform package is actually published.
         run: |
-          mkdir -p packages/ct-crypto-node/npm-package/prebuilds
-          for dir in prebuilds/prebuild-*/; do
-            platform=$(basename "$dir" | sed 's/prebuild-//')
-            mkdir -p packages/ct-crypto-node/npm-package/prebuilds/$platform
-            cp "$dir/ct-crypto.node" packages/ct-crypto-node/npm-package/prebuilds/$platform/
-          done
-          cd packages/ct-crypto-node
-          cp index.js index.d.ts provider.js provider.d.ts package.json ../../LICENSE npm-package/
-
-      # Fail the release if any declared platform prebuild is missing,
-      # instead of shipping a package that installs everywhere then throws at
-      # require() on the platforms with no binary.
-      - name: Assert all declared prebuilds present
-        run: |
-          set -e
-          EXPECTED="darwin-arm64 darwin-x64 linux-x64-glibc linux-arm64-glibc linux-x64-musl linux-arm64-musl win32-x64"
-          missing=0
-          for p in $EXPECTED; do
-            if [ ! -f "packages/ct-crypto-node/npm-package/prebuilds/$p/ct-crypto.node" ]; then
-              echo "::error::missing prebuild for $p"
-              missing=1
-            fi
-          done
-          [ "$missing" = "0" ] || { echo "Refusing to package with missing prebuilds"; exit 1; }
-
-      # Reproducibility / provenance: publish a checksum of every shipped binary
-      # so the published bytes can be verified against this run.
-      - name: Generate SHA256SUMS
-        run: |
-          cd packages/ct-crypto-node/npm-package
-          find prebuilds -type f -name '*.node' -exec sha256sum {} \; | sort > SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Upload npm package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: npm-package
-          path: packages/ct-crypto-node/npm-package/
-
-      # Out-of-band checksums. package.json ships SHA256SUMS INSIDE the tarball,
-      # so an attacker who tampered a prebuild could regenerate a matching
-      # in-tarball manifest — that copy proves nothing on its own. Upload the
-      # same manifest as a SEPARATE artifact so a verifier (release-publish.sh)
-      # can fetch it independently and diff it against the in-tarball copy;
-      # they must be byte-identical.
-      - name: Upload SHA256SUMS (out-of-band)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: node-sha256sums
-          path: packages/ct-crypto-node/npm-package/SHA256SUMS
-
-  # NOTE: npm publish is intentionally NOT done here. On a `v*` tag this
-  # workflow builds every prebuild and uploads the ready-to-publish
-  # `npm-package` artifact; a maintainer downloads it and publishes with
-  # npm 2FA — see RELEASING.md. Trade-off: no npm provenance attestation on
-  # the published tarball, since that requires CI OIDC.
+          if [ "${{ inputs.dry-run }}" = "false" ]; then
+            npm publish --provenance --access public --tag shielded
+          else
+            echo "Dry run — validating the main package tarball without publishing."
+            npm publish --access public --tag shielded --dry-run --ignore-scripts
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -43,3 +43,9 @@ push-*.sh
 # Jest coverage output
 coverage/
 **/coverage/
+
+# napi-rs CLI build output for ct-crypto-node: platform binaries are published
+# as per-platform packages (optionalDependencies), never committed. The
+# generated index.js / index.d.ts ARE committed.
+packages/ct-crypto-node/*.node
+packages/ct-crypto-node/npm/

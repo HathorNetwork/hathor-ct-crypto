@@ -14,6 +14,7 @@ CORE_REF        ?= experimental/shielded-outputs-alpha-v4
 check-drift:
 	@HATHOR_CORE_DIR="$(HATHOR_CORE_DIR)" CORE_REF="$(CORE_REF)" ./scripts/check-drift.sh
 
-## test: run the Rust workspace tests as CI does
+## test: run the Rust workspace tests as CI does (the NAPI binding is jest-tested
+## separately — under napi-rs 3 its #[napi] glue can't link a standalone test binary)
 test:
-	cargo test --workspace --locked --features hathor-ct-crypto-node/napi
+	cargo test --workspace --exclude hathor-ct-crypto-node --locked
