@@ -47,7 +47,7 @@
     "@hathor/ct-crypto-provider": "0.0.1-shielded"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3",
+    "@napi-rs/cli": "3.7.4",
     "@types/jest": "29.5.12",
     "@types/node": "20.14.2",
     "jest": "29.7.0"
