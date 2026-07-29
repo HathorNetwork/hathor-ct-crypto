@@ -532,7 +532,7 @@ version = "0.0.1"
 dependencies = [
  "hex",
  "proptest",
- "rand 0.8.6",
+ "rand 0.9.4",
  "secp256k1-zkp",
  "sha2",
  "thiserror",
@@ -544,7 +544,7 @@ name = "hathor-ct-crypto-mobile"
 version = "0.0.1-shielded"
 dependencies = [
  "hathor-ct-crypto-core",
- "rand 0.8.6",
+ "rand 0.9.4",
  "secp256k1-zkp",
  "thiserror",
  "uniffi",
@@ -569,7 +569,7 @@ dependencies = [
  "hathor-ct-crypto-core",
  "hex",
  "js-sys",
- "rand 0.8.6",
+ "rand 0.9.4",
  "secp256k1-zkp",
  "sha2",
  "thiserror",
@@ -880,9 +880,9 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand"
-version = "0.8.6"
+version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
+checksum = "22f6172bdec972074665ed81ed53b71da00bfc44b65a753cfde883ec4c702a1a"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -1015,7 +1015,7 @@ version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9465315bc9d4566e1724f0fffcbcc446268cb522e60f9a27bcded6b19c108113"
 dependencies = [
- "rand 0.8.6",
+ "rand 0.8.7",
  "secp256k1-sys",
 ]
 
@@ -1035,7 +1035,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52a44aed3002b5ae975f8624c5df3a949cfbf00479e18778b6058fcd213b76e3"
 dependencies = [
  "bitcoin-private",
- "rand 0.8.6",
+ "rand 0.8.7",
  "secp256k1",
  "secp256k1-zkp-sys",
 ]
