@@ -11,7 +11,7 @@ hathor-ct-crypto-core = { path = "../../crypto-core" }
 secp256k1-zkp = { workspace = true }
 rand = { workspace = true }
 thiserror = { workspace = true }
-uniffi = { version = "0.28" }
+uniffi = { version = "0.32" }
 
 [features]
 default = ["std"]
