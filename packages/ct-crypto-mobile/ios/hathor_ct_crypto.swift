@@ -1078,6 +1078,24 @@ public func createCommitmentUniffi(value: UInt64, blindingFactor: Data, generato
     )
 })
 }
+/**
+ * DISABLED — do not use (review finding L-5).
+ *
+ * This function self-generated BOTH blinding factors internally, so the caller
+ * could not control the value blinding factor. That is a balance-breaking
+ * footgun: the last output of a transaction must use a *specific* balancing vbf
+ * for the homomorphic balance equation to hold, and an output built here would
+ * silently produce an invalid transaction. It is unused by the RN bridge.
+ *
+ * It now rejects unconditionally. Use `create_shielded_output_with_blinding_uniffi`
+ * (caller-supplied vbf) or `create_shielded_output_with_both_blindings_uniffi`
+ * (caller-supplied vbf + abf) instead, both of which delegate to crypto-core.
+ *
+ * NOTE: the `#[uniffi::export]` signature is kept so the generated Swift/Kotlin
+ * FFI checksums are unchanged (no binding regeneration required). Fully removing
+ * this and the other unused exports is a follow-up that regenerates the bindings
+ * and must be validated on-device against the runtime checksum handshake.
+ */
 public func createShieldedOutputUniffi(value: UInt64, recipientPubkey: Data, tokenUid: Data, fullyShielded: Bool)throws  -> CreatedShieldedOutput {
     return try  FfiConverterTypeCreatedShieldedOutput.lift(try rustCallWithError(FfiConverterTypeCryptoError.lift) {
     uniffi_hathor_ct_crypto_mobile_fn_func_create_shielded_output_uniffi(
@@ -1165,10 +1183,9 @@ public func deriveTagUniffi(tokenUid: Data)throws  -> Data {
  *
  * Mirrors `napi_bindings::generate_random_blinding_factor`. Exposed via
  * UniFFI so the mobile RN bridge (and any future UniFFI consumer) can
- * call a dedicated RNG primitive — without this, mobile had to call
- * `create_shielded_output_uniffi` with dummy inputs and extract the
- * blinding factor from the unused result. That workaround is removed
- * once mobile picks up this new export.
+ * call a dedicated RNG primitive. (This replaced an old workaround that
+ * abused `create_shielded_output_uniffi` to extract a blinding factor —
+ * that function is now disabled; see its doc.)
  */
 public func generateRandomBlindingFactorUniffi() -> Data {
     return try!  FfiConverterData.lift(try! rustCall() {
@@ -1213,7 +1230,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_commitment_uniffi() != 60745) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_uniffi() != 39686) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_uniffi() != 15462) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_with_blinding_uniffi() != 22572) {
@@ -1240,7 +1257,7 @@ private var initializationResult: InitializationResult = {
     if (uniffi_hathor_ct_crypto_mobile_checksum_func_derive_tag_uniffi() != 3544) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_hathor_ct_crypto_mobile_checksum_func_generate_random_blinding_factor_uniffi() != 44678) {
+    if (uniffi_hathor_ct_crypto_mobile_checksum_func_generate_random_blinding_factor_uniffi() != 45354) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_hathor_ct_crypto_mobile_checksum_func_get_zero_tweak_uniffi() != 41719) {
