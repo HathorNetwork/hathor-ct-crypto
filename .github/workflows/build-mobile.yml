@@ -23,8 +23,12 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+      # The action's `targets:` input lands on the toolchain the action
+      # installs; rust-toolchain.toml then switches cargo to the pinned one,
+      # which lacked the targets (E0463). Install them for the pinned
+      # toolchain explicitly.
+      - name: Install iOS targets for the pinned toolchain
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 
       - name: Build iOS static libraries
         # cargo rustc --crate-type staticlib: the crate also declares cdylib
@@ -69,8 +73,9 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      # Same pinned-toolchain rule as the iOS job above.
+      - name: Install Android targets for the pinned toolchain
+        run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
       - name: Install cargo-ndk
         # Pinned: NDK discovery and page-size defaults vary across cargo-ndk

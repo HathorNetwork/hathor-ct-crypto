@@ -954,7 +954,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_create_commitment_uniffi() != 60745.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_uniffi() != 39686.toShort()) {
+    if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_uniffi() != 15462.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_with_blinding_uniffi() != 22572.toShort()) {
@@ -981,7 +981,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_derive_tag_uniffi() != 3544.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_generate_random_blinding_factor_uniffi() != 44678.toShort()) {
+    if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_generate_random_blinding_factor_uniffi() != 45354.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_get_zero_tweak_uniffi() != 41719.toShort()) {
@@ -1564,6 +1564,24 @@ public object FfiConverterSequenceTypeSurjectionDomainEntry: FfiConverterRustBuf
     }
     
 
+        /**
+         * DISABLED — do not use (review finding L-5).
+         *
+         * This function self-generated BOTH blinding factors internally, so the caller
+         * could not control the value blinding factor. That is a balance-breaking
+         * footgun: the last output of a transaction must use a *specific* balancing vbf
+         * for the homomorphic balance equation to hold, and an output built here would
+         * silently produce an invalid transaction. It is unused by the RN bridge.
+         *
+         * It now rejects unconditionally. Use `create_shielded_output_with_blinding_uniffi`
+         * (caller-supplied vbf) or `create_shielded_output_with_both_blindings_uniffi`
+         * (caller-supplied vbf + abf) instead, both of which delegate to crypto-core.
+         *
+         * NOTE: the `#[uniffi::export]` signature is kept so the generated Swift/Kotlin
+         * FFI checksums are unchanged (no binding regeneration required). Fully removing
+         * this and the other unused exports is a follow-up that regenerates the bindings
+         * and must be validated on-device against the runtime checksum handshake.
+         */
     @Throws(CryptoException::class) fun `createShieldedOutputUniffi`(`value`: kotlin.ULong, `recipientPubkey`: kotlin.ByteArray, `tokenUid`: kotlin.ByteArray, `fullyShielded`: kotlin.Boolean): CreatedShieldedOutput {
             return FfiConverterTypeCreatedShieldedOutput.lift(
     uniffiRustCallWithError(CryptoException) { _status ->
@@ -1659,10 +1677,9 @@ public object FfiConverterSequenceTypeSurjectionDomainEntry: FfiConverterRustBuf
          *
          * Mirrors `napi_bindings::generate_random_blinding_factor`. Exposed via
          * UniFFI so the mobile RN bridge (and any future UniFFI consumer) can
-         * call a dedicated RNG primitive — without this, mobile had to call
-         * `create_shielded_output_uniffi` with dummy inputs and extract the
-         * blinding factor from the unused result. That workaround is removed
-         * once mobile picks up this new export.
+         * call a dedicated RNG primitive. (This replaced an old workaround that
+         * abused `create_shielded_output_uniffi` to extract a blinding factor —
+         * that function is now disabled; see its doc.)
          */ fun `generateRandomBlindingFactorUniffi`(): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     uniffiRustCall() { _status ->
