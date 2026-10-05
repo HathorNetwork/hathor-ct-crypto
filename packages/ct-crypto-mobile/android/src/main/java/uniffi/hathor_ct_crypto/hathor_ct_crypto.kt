@@ -954,7 +954,7 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_create_commitment_uniffi() != 60745.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_uniffi() != 15462.toShort()) {
+    if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_uniffi() != 19254.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_hathor_ct_crypto_mobile_checksum_func_create_shielded_output_with_blinding_uniffi() != 22572.toShort()) {
@@ -1576,11 +1576,6 @@ public object FfiConverterSequenceTypeSurjectionDomainEntry: FfiConverterRustBuf
          * It now rejects unconditionally. Use `create_shielded_output_with_blinding_uniffi`
          * (caller-supplied vbf) or `create_shielded_output_with_both_blindings_uniffi`
          * (caller-supplied vbf + abf) instead, both of which delegate to crypto-core.
-         *
-         * NOTE: the `#[uniffi::export]` signature is kept so the generated Swift/Kotlin
-         * FFI checksums are unchanged (no binding regeneration required). Fully removing
-         * this and the other unused exports is a follow-up that regenerates the bindings
-         * and must be validated on-device against the runtime checksum handshake.
          */
     @Throws(CryptoException::class) fun `createShieldedOutputUniffi`(`value`: kotlin.ULong, `recipientPubkey`: kotlin.ByteArray, `tokenUid`: kotlin.ByteArray, `fullyShielded`: kotlin.Boolean): CreatedShieldedOutput {
             return FfiConverterTypeCreatedShieldedOutput.lift(
