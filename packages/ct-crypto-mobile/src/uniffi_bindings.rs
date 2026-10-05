@@ -147,11 +147,14 @@ pub fn derive_rewind_nonce_uniffi(shared_secret: Vec<u8>) -> Result<Vec<u8>, Cry
 /// It now rejects unconditionally. Use `create_shielded_output_with_blinding_uniffi`
 /// (caller-supplied vbf) or `create_shielded_output_with_both_blindings_uniffi`
 /// (caller-supplied vbf + abf) instead, both of which delegate to crypto-core.
-///
-/// NOTE: the `#[uniffi::export]` signature is kept so the generated Swift/Kotlin
-/// FFI checksums are unchanged (no binding regeneration required). Fully removing
-/// this and the other unused exports is a follow-up that regenerates the bindings
-/// and must be validated on-device against the runtime checksum handshake.
+//
+// NOTE (maintainers): the export is kept as a rejecting stub. Fully removing this
+// and the other unused exports is a follow-up that regenerates the bindings and
+// must be validated on-device against the runtime checksum handshake. Keeping the
+// export does NOT keep its UniFFI checksum stable: the checksum covers the
+// argument names and the `///` text above, so editing either means regenerating
+// the committed Swift/Kotlin bindings in the same change (see the package README;
+// the CI bindings-drift check fails otherwise).
 #[uniffi::export]
 pub fn create_shielded_output_uniffi(
     _value: u64,
