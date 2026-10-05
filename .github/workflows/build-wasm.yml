@@ -27,10 +27,19 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install Rust (wasm32 target)
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
-        with:
-          targets: wasm32-unknown-unknown
+
+      # Same pinned-toolchain rule as build-node.yml / build-mobile.yml: an
+      # action-level `targets:` input lands on the toolchain the action
+      # installs, not on the one rust-toolchain.toml pins. This job only stayed
+      # green because wasm-pack runs `rustup target add` itself. Install the
+      # pinned toolchain explicitly first — rustup deprecates auto-installing
+      # it from `rustup target add`.
+      - name: Install wasm32 target for the pinned toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustup target add wasm32-unknown-unknown
 
       - name: Install clang + llvm-ar for the wasm32 cross-compile
         # scripts/build-wasm.sh cross-compiles the bundled libsecp256k1 C source
