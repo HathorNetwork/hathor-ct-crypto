@@ -13,15 +13,19 @@ wallet-lib and wallet-headless use this package.
 npm install @hathor/ct-crypto-node
 ```
 
-Prebuilt binaries are included for:
+Each platform's binary ships as its own package, which npm installs
+automatically through `optionalDependencies`:
 
-- macOS: `darwin-arm64` (Apple Silicon), `darwin-x64` (Intel)
-- Linux glibc: `linux-x64-glibc`, `linux-arm64-glibc`
-- Linux musl (Alpine — wallet-headless's Docker base): `linux-x64-musl`, `linux-arm64-musl`
-- Windows: `win32-x64`
+- macOS: `@hathor/ct-crypto-node-darwin-arm64` (Apple Silicon),
+  `@hathor/ct-crypto-node-darwin-x64` (Intel)
+- Linux glibc: `@hathor/ct-crypto-node-linux-x64-gnu`,
+  `@hathor/ct-crypto-node-linux-arm64-gnu`
+- Linux musl (Alpine — wallet-headless's Docker base):
+  `@hathor/ct-crypto-node-linux-x64-musl`, `@hathor/ct-crypto-node-linux-arm64-musl`
+- Windows: `@hathor/ct-crypto-node-win32-x64-msvc`
 
 The loader detects the platform, architecture, and (on Linux) the C library
-at require-time and picks the matching prebuild automatically.
+at require-time and loads the matching package.
 
 ## Usage
 
@@ -36,19 +40,18 @@ exports the raw NAPI functions for advanced consumers.
 
 ## Building from source
 
-Requires a Rust toolchain:
+Requires a Rust toolchain. From the repository root:
 
 ```bash
-cargo build --features napi --release
+npm ci
+npm run build -w @hathor/ct-crypto-node   # writes ct-crypto.<platform>.node next to index.js
 ```
 
 ## Releasing
 
-Releases are CI-built: pushing a `vX.Y.Z` tag makes the `Build native addon`
-workflow compile all seven prebuilds, assert none is missing, and upload a
-ready-to-publish `npm-package` artifact (with `SHA256SUMS` for the binaries).
-A maintainer downloads that artifact and runs `npm publish` from it — the
-binaries that reach npm are always the CI-built ones, never a laptop build.
+From 0.5.0 on, every platform binary on npm is the one CI built from the
+release tag, checked byte-for-byte before publishing. See
+[RELEASING.md](https://github.com/HathorNetwork/hathor-ct-crypto/blob/master/RELEASING.md).
 
 ## License
 

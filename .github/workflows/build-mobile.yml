@@ -8,8 +8,9 @@ on:
     branches: [master]
 
 # Least privilege. Builds the iOS XCFramework + Android jniLibs and uploads
-# them as CI artifacts; npm publish is done by a maintainer from the artifact
-# (see RELEASING.md), not here. Artifact upload/download use the Actions
+# them as CI artifacts. A release packs and verifies the v* tag run's artifact
+# on a maintainer's machine and publishes that tarball (see RELEASING.md);
+# nothing is published from here. Artifact upload/download use the Actions
 # runtime token, so read-only GITHUB_TOKEN is sufficient throughout.
 permissions:
   contents: read
@@ -94,6 +95,11 @@ jobs:
           test -n "$ANDROID_NDK_HOME" || { echo "::error::ANDROID_NDK_LATEST_HOME not set on runner"; exit 1; }
           cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o jniLibs \
             build -p hathor-ct-crypto-mobile --locked --release
+          # cargo-ndk also copies a libsecp256k1_zkp-<hash>.so build by-product.
+          # libhathor_ct_crypto_mobile.so links secp256k1 statically (its only
+          # NEEDED entries are libc and libdl) and the Kotlin bindings load only
+          # it, so ship just that library.
+          find jniLibs -name '*.so' ! -name libhathor_ct_crypto_mobile.so -print -delete
 
       - name: Upload jniLibs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -101,9 +107,9 @@ jobs:
           name: mobile-android-jnilibs
           path: jniLibs/
 
-  # Assemble the publishable npm package: repo sources + CI-built binaries.
-  # Publishing itself is run by a maintainer from this artifact — see
-  # RELEASING.md.
+  # Assemble the npm package: repo sources + CI-built binaries. A release packs
+  # this artifact from the v* tag's run, checks it against the ios and android
+  # artifacts and the tagged sources, and publishes the tarball (RELEASING.md).
   collect:
     needs: [ios, android]
     if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master')
@@ -151,6 +157,8 @@ jobs:
             fi
           done
           [ "$missing" = "0" ] || exit 1
+          extra=$(find npm-package-mobile/android/src/main/jniLibs -type f ! -name libhathor_ct_crypto_mobile.so)
+          if [ -n "$extra" ]; then echo "::error::unexpected files in jniLibs: $extra"; exit 1; fi
 
       - name: Generate SHA256SUMS
         run: |
@@ -166,9 +174,8 @@ jobs:
           name: npm-package-mobile
           path: npm-package-mobile/
 
-      # Out-of-band checksums — see the matching step in build-node.yml.
-      # package.json ships SHA256SUMS inside the tarball, so also upload it as a
-      # standalone artifact the verifier can diff against the in-tarball copy.
+      # Out-of-band copy of SHA256SUMS. package.json ships SHA256SUMS inside the
+      # tarball; the release checks that copy against this one (see RELEASING.md).
       - name: Upload SHA256SUMS (out-of-band)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

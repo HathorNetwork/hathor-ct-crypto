@@ -22,7 +22,7 @@
   ],
   "scripts": {
     "test": "jest",
-    "prepublishOnly": "node -e \"const fs=require('fs');for (const p of ['ios/HathorCtCrypto.xcframework','android/src/main/jniLibs']) if (!fs.existsSync(p)) { console.error('missing native binaries: '+p+' \u2014 publish from the CI npm-package-mobile artifact, not the repo checkout'); process.exit(1); }\""
+    "prepublishOnly": "node -e \"console.error('Refusing to publish from a directory: a release publishes the verified tarballs (see RELEASING.md).'); process.exit(1)\""
   },
   "dependencies": {
     "@hathor/ct-crypto-provider": "0.0.1-shielded",

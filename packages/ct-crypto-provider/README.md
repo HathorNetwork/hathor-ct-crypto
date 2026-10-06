@@ -70,6 +70,13 @@ class MyProvider extends AbstractShieldedProvider {
 }
 ```
 
+## Installation
+
+You normally get this package through a binding (`@hathor/ct-crypto-node`,
+`-wasm` or `-mobile`), which pins it exactly. If you also depend on it
+directly, install the same version as your binding: two copies break
+`instanceof ScanMissError`.
+
 ## Usage (wallet-lib consumers)
 
 ```ts

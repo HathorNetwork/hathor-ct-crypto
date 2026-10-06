@@ -1,15 +1,15 @@
 name: Build native addon (napi)
 
-# Builds the @hathor/ct-crypto-node napi addon for every napi.targets platform.
-# On push/PR it is a build+test GATE (no publish). Publishing is manual
-# (workflow_dispatch) and runs from CI with npm provenance — replacing the old
-# build-a-prebuild-then-publish-from-a-laptop flow (review finding M-6).
+# Builds the @hathor/ct-crypto-node napi addon for every napi.targets platform
+# and runs the Rust tests. On pull requests it is a build + test gate. On master
+# and v* tag pushes (and manual runs) each platform's binary is uploaded as a
+# bindings-<target> artifact.
 #
 # Distribution model (napi-rs v3): each platform ships as its own package
-# (@hathor/ct-crypto-node-<target>) wired into the main package's
-# optionalDependencies by `napi prepublish`. No binaries are committed.
-#
-# NOTE: validate the publish path with a dry run before the first real publish.
+# (@hathor/ct-crypto-node-<platform>, e.g. -linux-x64-gnu), pulled in through
+# the main package's optionalDependencies. A release publishes them from the v*
+# tag run's artifacts, from a maintainer's machine (see RELEASING.md). No
+# binaries are committed and nothing is published from CI.
 
 on:
   push:
@@ -18,15 +18,6 @@ on:
   pull_request:
     branches: [master]
   workflow_dispatch:
-    inputs:
-      version:
-        description: Version to publish (e.g. 0.0.1-shielded, or patch/minor/major)
-        type: string
-        required: true
-      dry-run:
-        description: Build and assemble without publishing
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -48,8 +39,10 @@ jobs:
             target: x86_64-apple-darwin
           - host: macos-latest
             target: aarch64-apple-darwin
+            smoke: true
           - host: windows-latest
             target: x86_64-pc-windows-msvc
+            smoke: true
           # Linux targets cross-build on the plain runner with napi-rs tooling.
           # The napi-rs docker images are frozen on a Node too old for
           # @napi-rs/cli 3 (the alpine ones ship Node 18, which lacks
@@ -59,6 +52,7 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             build-flags: --use-napi-cross
+            smoke: true
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             build-flags: --use-napi-cross
@@ -104,6 +98,29 @@ jobs:
           npm ci
           npm run build -w ${{ env.PACKAGE }} -- --target ${{ matrix.settings.target }} ${{ matrix.settings.build-flags }}
 
+      # napi build regenerates index.js and index.d.ts. The committed copies are
+      # what gets published, so they must be exactly what the build generates.
+      # (Skipped on Windows, where the checkout has CRLF line endings.)
+      - name: Check the committed loader and typings
+        if: runner.os != 'Windows'
+        run: git diff --exit-code -- ${{ env.PACKAGE_DIR }}/index.js ${{ env.PACKAGE_DIR }}/index.d.ts
+
+      # Run the binary just built through the loader, on the hosts that can
+      # execute their own target. The release also smoke-tests the Linux
+      # binaries in containers and darwin-arm64 locally; darwin-x64 is only
+      # format-checked.
+      - name: Load the built addon
+        if: ${{ matrix.settings.smoke }}
+        shell: bash
+        working-directory: ${{ env.PACKAGE_DIR }}
+        run: |
+          node -e '
+            const ct = require("./index.js");
+            const c = ct.createCommitment(1000n, ct.generateRandomBlindingFactor(), ct.htrAssetTag());
+            if (!ct.validateCommitment(c)) throw new Error("commitment does not validate");
+            console.log("loaded and ran on", process.platform, process.arch);
+          '
+
       - name: Upload binary
         if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master'))
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -122,56 +139,3 @@ jobs:
       # we cargo-test its crypto logic (crypto-core) + the mobile UniFFI crate.
       # Excluded: the #[napi] glue can't link a standalone test binary (napi-rs 3).
       - run: cargo test --workspace --exclude hathor-ct-crypto-node --locked
-
-  publish:
-    name: Publish to npm
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    needs: [build, test]
-    timeout-minutes: 15
-    # Configure the `npm-publish` environment in repo Settings: allowed publishers
-    # as Required reviewers + NPM_TOKEN as an environment secret. Publish (real or
-    # dry-run) waits for reviewer approval before it starts.
-    environment: npm-publish
-    permissions:
-      contents: read
-      id-token: write # npm provenance (closes the M-6 provenance gap)
-    defaults:
-      run:
-        working-directory: packages/ct-crypto-node
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-      - name: Install deps
-        working-directory: .
-        run: npm ci
-      - name: Create per-platform package dirs
-        run: npx napi create-npm-dirs
-      - name: Set the version to publish
-        run: npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
-      - name: Download platform binaries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          path: packages/ct-crypto-node/artifacts
-          pattern: bindings-*
-          merge-multiple: true
-      - name: Move binaries into npm/<target>
-        run: npx napi artifacts --dir artifacts
-      - name: Publish to npm
-        # prepublishOnly (napi prepublish -t npm) publishes the per-platform
-        # packages and wires the main package's optionalDependencies; npm then
-        # publishes the main package with provenance. Prereleases go to the
-        # `shielded` dist-tag, never `latest`. Dry-run skips scripts so no
-        # platform package is actually published.
-        run: |
-          if [ "${{ inputs.dry-run }}" = "false" ]; then
-            npm publish --provenance --access public --tag shielded
-          else
-            echo "Dry run — validating the main package tarball without publishing."
-            npm publish --access public --tag shielded --dry-run --ignore-scripts
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

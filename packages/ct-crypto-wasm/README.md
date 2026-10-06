@@ -57,11 +57,12 @@ The repo ships a flake that wires all three:
 nix develop --command ./scripts/build-wasm.sh
 ```
 
-That produces the publishable artifact at `pkg/` — `build-wasm.sh` rewrites
+That produces the package at `pkg/` — `build-wasm.sh` rewrites
 `pkg/package.json` (scoped name, version, exports, runtime deps) on every
-build, so never hand-edit files under `pkg/`. Publishing happens from `pkg/`
-as part of the repo's release flow (all packages release in lockstep on a
-`vX.Y.Z` tag).
+build, so never hand-edit files under `pkg/`. A local `pkg/` is for
+development only: a release publishes the `wasm-pkg` artifact that CI builds
+from the release tag (see the repository's
+[RELEASING.md](https://github.com/HathorNetwork/hathor-ct-crypto/blob/master/RELEASING.md)).
 
 ## Tests
 
