@@ -18,7 +18,8 @@
     "test": "jest",
     "lint": "eslint 'src/**/*.ts' '__tests__/**/*.ts'",
     "clean": "rm -rf lib",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "prepublishOnly": "node -e \"console.error('Refusing to publish from a directory: a release publishes the verified tarballs (see RELEASING.md).'); process.exit(1)\""
   },
   "dependencies": {
     "@types/node": "20.14.2"

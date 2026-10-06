@@ -38,7 +38,7 @@
     "build": "napi build --platform --release --features napi",
     "build:debug": "napi build --platform --features napi",
     "artifacts": "napi artifacts",
-    "prepublishOnly": "napi prepublish -t npm",
+    "prepublishOnly": "node -e \"console.error('Refusing to publish from a directory: a release publishes the verified tarballs (see RELEASING.md).'); process.exit(1)\"",
     "pretest": "napi build --platform --features napi",
     "test": "jest",
     "version": "napi version"

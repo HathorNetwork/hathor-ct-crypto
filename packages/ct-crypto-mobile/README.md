@@ -17,15 +17,16 @@ js/                 MobileShieldedProvider (implements @hathor/ct-crypto-provide
 `*` The compiled Rust binaries (`ios/HathorCtCrypto.xcframework`,
 `android/src/main/jniLibs/<abi>/libhathor_ct_crypto_mobile.so`) are built by CI
 (`.github/workflows/build-mobile.yml`) and shipped in the npm tarball — they are
-not present in a plain git checkout. A release published without them would be
-broken by construction; the `prepublishOnly` guard refuses to publish without
-them, and releases are published from the CI artifact (see the repo's
-RELEASING.md).
+not present in a plain git checkout. A release packs the CI artifact of the
+release tag, checks it byte-for-byte against the CI builds and the tagged
+sources, and publishes that tarball; `prepublishOnly` refuses any publish from a
+directory (see the repo's
+[RELEASING.md](https://github.com/HathorNetwork/hathor-ct-crypto/blob/master/RELEASING.md)).
 
 ## Usage (in a React Native app)
 
 ```sh
-npm install @hathor/ct-crypto-mobile
+npm install @hathor/ct-crypto-mobile@shielded
 cd ios && pod install   # autolinking picks up hathor-ct-crypto-mobile.podspec
 ```
 

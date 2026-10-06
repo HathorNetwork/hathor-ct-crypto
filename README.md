@@ -66,14 +66,13 @@ npm test                  # run each package's tests
 Lockstep: all four packages publish under the same monorepo-level version.
 A breaking change to the abstract class bumps every package simultaneously.
 
-A release is driven by a `vX.Y.Z` tag: CI builds the native artifacts
-(`build-node.yml` → the 7 NAPI prebuilds; `build-mobile.yml` → the iOS
-XCFramework + Android jniLibs) and uploads ready-to-publish package
-artifacts with binary checksums. A maintainer downloads those artifacts,
-builds the pure-TS provider and the wasm `pkg/` locally, and publishes all
-four packages to npm — so published binaries always come from CI. (Early
-prereleases were published under the `shielded` dist-tag; stable versions
-go to `latest`.)
+A release is driven by a signed `v<version>` tag. CI builds every native
+binary from it: `build-node.yml` builds the 7 napi addons, `build-mobile.yml`
+the iOS XCFramework and Android jniLibs, and `build-wasm.yml` the wasm
+package. A maintainer then packs the 11 npm packages, checks every binary and
+the provider's compiled JS byte-for-byte against those CI builds and every
+source file against the tag, and publishes them with npm 2FA. `-shielded`
+prereleases go to the `shielded` dist-tag. See [RELEASING.md](RELEASING.md).
 
 ## License
 
