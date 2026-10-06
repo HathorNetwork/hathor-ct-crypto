@@ -1,6 +1,6 @@
 {
   "name": "@hathor/ct-crypto-mobile",
-  "version": "0.0.1-shielded",
+  "version": "0.5.0",
   "description": "React Native (iOS/Android) shielded crypto provider for Hathor confidential transactions. Rust core over UniFFI, bridged as a native module; implements the @hathor/ct-crypto-provider interface.",
   "main": "js/index.js",
   "types": "index.d.ts",
@@ -25,7 +25,7 @@
     "prepublishOnly": "node -e \"console.error('Refusing to publish from a directory: a release publishes the verified tarballs (see RELEASING.md).'); process.exit(1)\""
   },
   "dependencies": {
-    "@hathor/ct-crypto-provider": "0.0.1-shielded",
+    "@hathor/ct-crypto-provider": "0.5.0",
     "buffer": "6.0.3"
   },
   "peerDependencies": {

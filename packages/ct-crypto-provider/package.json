@@ -1,6 +1,6 @@
 {
   "name": "@hathor/ct-crypto-provider",
-  "version": "0.0.1-shielded",
+  "version": "0.5.0",
   "description": "Abstract class + interface for Hathor shielded crypto providers. Per-platform binding packages (@hathor/ct-crypto-node, @hathor/ct-crypto-wasm) extend the abstract class; wallet-lib accepts any instance via setShieldedCryptoProvider.",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
