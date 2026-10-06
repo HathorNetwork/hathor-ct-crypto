@@ -74,9 +74,8 @@ class MyProvider extends AbstractShieldedProvider {
 
 You normally get this package through a binding (`@hathor/ct-crypto-node`,
 `-wasm` or `-mobile`), which pins it exactly. If you also depend on it
-directly, install the same version as your binding
-(`npm install @hathor/ct-crypto-provider@shielded`): `latest` can point at an
-older prerelease, and two copies break `instanceof ScanMissError`.
+directly, install the same version as your binding: two copies break
+`instanceof ScanMissError`.
 
 ## Usage (wallet-lib consumers)
 

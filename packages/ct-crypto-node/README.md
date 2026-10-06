@@ -10,11 +10,8 @@ wallet-lib and wallet-headless use this package.
 ## Installation
 
 ```bash
-npm install @hathor/ct-crypto-node@shielded
+npm install @hathor/ct-crypto-node
 ```
-
-Versions are `-shielded` prereleases on the `shielded` dist-tag; `latest`
-still points at an older, incompatible line.
 
 Each platform's binary ships as its own package, which npm installs
 automatically through `optionalDependencies`:
@@ -52,8 +49,8 @@ npm run build -w @hathor/ct-crypto-node   # writes ct-crypto.<platform>.node nex
 
 ## Releasing
 
-From 0.0.2-shielded on, every platform binary on npm is the one CI built from
-the release tag, checked byte-for-byte before publishing. See
+From 0.5.0 on, every platform binary on npm is the one CI built from the
+release tag, checked byte-for-byte before publishing. See
 [RELEASING.md](https://github.com/HathorNetwork/hathor-ct-crypto/blob/master/RELEASING.md).
 
 ## License

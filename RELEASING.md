@@ -28,11 +28,14 @@ stands in for it:
   byte-identical to the tagged sources;
 - after publishing, the registry's checksums are compared with the tarballs.
 
-While versions are `-shielded` prereleases, publish to the `shielded` dist-tag,
-never `latest` (review finding M-6): a prerelease on `latest` is what a plain
-`npm install` resolves to. Consumers opt in with `@shielded`. A package's first
-publish also sets `latest`, and it stays there until someone moves it on
-purpose.
+Releases are plain versions published under the `latest` dist-tag, so a plain
+`npm install` resolves to them, and all 11 packages get the same version. That
+version must be higher than every package's current `latest`, so a release
+never moves `latest` down. The first release from this repository is 0.5.0:
+`@hathor/ct-crypto-node` was already at 0.4.0 and `@hathor/ct-crypto-wasm` at
+0.2.0 from older lines, and the `0.0.1-shielded` prerelease sits under the
+`shielded` dist-tag. A prerelease would go under its own dist-tag, never
+`latest` (review finding M-6).
 
 ## Before the first release from a machine
 
@@ -55,8 +58,8 @@ it left off when run again. Run it in a terminal, without piping its output:
 npm only asks for 2FA when it is attached to one.
 
 ```sh
-./release-publish.sh status 0.0.2-shielded   # where the release stands
-./release-publish.sh 0.0.2-shielded          # prepare, tag, stage, publish
+./release-publish.sh status 0.5.0   # where the release stands
+./release-publish.sh 0.5.0          # prepare, tag, stage, publish
 ```
 
 A rehearsal that pushes and publishes nothing: `--dry-run prepare <next>`
@@ -93,8 +96,8 @@ from what the build generates.)
 
 Leave `Cargo.toml` and `Cargo.lock` alone: no published artifact reads the
 crate versions (`build-wasm.sh` stamps `pkg/package.json` from the npm
-manifest). Don't use `npm version --workspaces` (it leaves the provider pins
-behind) or `npm version patch|minor|major` (it drops the `-shielded` suffix).
+manifest). Don't use `npm version` for the bump: it leaves the provider pins
+and the loader behind.
 
 Commit the six files signed, push to `master`, and wait for all four workflows
 on that commit to be green: `ci.yml`, `build-node.yml`, `build-mobile.yml`,
@@ -240,9 +243,9 @@ byte-identical tarballs.
 ## 4. Publish
 
 Check that npm publishes to npmjs.com: `npm config get @hathor:registry` must
-be `undefined` or `https://registry.npmjs.org/`. Record the current dist-tags
-(`npm view <package> dist-tags --json` for all 11), so step 5 can tell whether
-`latest` moved.
+be `undefined` or `https://registry.npmjs.org/`. Check the current dist-tags
+(`npm view <package> dist-tags --json` for all 11): no package's `latest` may
+be higher than the version you are publishing.
 
 Publish the tarballs, in this order, each with npm 2FA:
 
@@ -254,7 +257,7 @@ Publish the tarballs, in this order, each with npm 2FA:
 5. `@hathor/ct-crypto-wasm`.
 
 ```sh
-npm publish "$OUT/<tarball>.tgz" --tag shielded --access public --provenance=false \
+npm publish "$OUT/<tarball>.tgz" --tag latest --access public --provenance=false \
   --registry=https://registry.npmjs.org/
 ```
 
@@ -275,11 +278,9 @@ byte-for-byte). Never fix a published release in place: cut a new version.
 
 - `npm view <package>@<version> dist.shasum` equals the sha1 of its tarball,
   for all 11.
-- `shielded` points at the new version everywhere, and `latest` did not move
-  on packages that already existed. A package published for the first time
-  also gets `latest`: the registry adds it on a first publish whatever `--tag`
-  says.
-- `npm install @hathor/ct-crypto-node@<version>` in an empty directory, on
-  macOS and in a linux-x64 container, loads and runs.
+- `latest` points at the new version on all 11 packages. Other dist-tags, such
+  as `shielded`, stay where they were.
+- `npm install @hathor/ct-crypto-node` in an empty directory, on macOS and in a
+  linux-x64 container, installs the new version, loads and runs.
 - Downstream: hathor-wallet-lib pins `@hathor/ct-crypto-provider` and
   `@hathor/ct-crypto-node` exactly. Bump them to the new version.

@@ -71,8 +71,8 @@ binary from it: `build-node.yml` builds the 7 napi addons, `build-mobile.yml`
 the iOS XCFramework and Android jniLibs, and `build-wasm.yml` the wasm
 package. A maintainer then packs the 11 npm packages, checks every binary and
 the provider's compiled JS byte-for-byte against those CI builds and every
-source file against the tag, and publishes them with npm 2FA. `-shielded`
-prereleases go to the `shielded` dist-tag. See [RELEASING.md](RELEASING.md).
+source file against the tag, and publishes them with npm 2FA under the
+`latest` dist-tag. See [RELEASING.md](RELEASING.md).
 
 ## License
 

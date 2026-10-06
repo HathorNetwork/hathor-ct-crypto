@@ -43,9 +43,8 @@ outputs while scanning, and let any other error propagate as a genuine failure.
 
 ## Build
 
-The crate is consumed via npm (`npm install @hathor/ct-crypto-wasm@shielded`;
-`latest` still points at an older line). To build the artifact yourself you
-need:
+The crate is consumed via npm (`npm install @hathor/ct-crypto-wasm`); to
+build the artifact yourself you need:
 
 - Rust with the `wasm32-unknown-unknown` target
 - An **unwrapped** clang with the wasm32 backend (nix's wrapped clang

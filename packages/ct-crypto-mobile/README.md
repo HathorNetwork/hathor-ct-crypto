@@ -26,7 +26,7 @@ directory (see the repo's
 ## Usage (in a React Native app)
 
 ```sh
-npm install @hathor/ct-crypto-mobile@shielded
+npm install @hathor/ct-crypto-mobile
 cd ios && pod install   # autolinking picks up hathor-ct-crypto-mobile.podspec
 ```
 
