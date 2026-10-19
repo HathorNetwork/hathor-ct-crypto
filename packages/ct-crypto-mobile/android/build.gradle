@@ -52,7 +52,7 @@ dependencies {
   // The UniFFI-generated Kotlin bindings load the Rust library through JNA.
   // 5.17+ ships a 16 KB page-size-aligned libjnidispatch.so, required by
   // Google Play for apps targeting Android 15+.
-  implementation 'net.java.dev.jna:jna:5.17.0@aar'
+  implementation 'net.java.dev.jna:jna:5.19.1@aar'
   implementation "org.jetbrains.kotlin:kotlin-stdlib:${safeExtGet('kotlinVersion', '1.9.24')}"
   implementation 'androidx.annotation:annotation:1.7.1'
 }
